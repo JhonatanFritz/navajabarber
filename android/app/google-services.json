@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "254375507222",
+    "project_id": "masternavaja2026",
+    "storage_bucket": "masternavaja2026.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:254375507222:android:0433004278e91a81a44c37",
+        "android_client_info": {
+          "package_name": "com.example.barber"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "254375507222-vmppe9rgk54a1f6vosn5nogek45vcqv5.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.barber",
+            "certificate_hash": "da1215f640058849a711fac9b83a8a3e6188e565"
+          }
+        },
+        {
+          "client_id": "254375507222-uj3vmgn41urefgqkd8rtbro6o724phff.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAGeG9hifuS-5koAUQ3rW8VauPGlO2V21k"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "254375507222-uj3vmgn41urefgqkd8rtbro6o724phff.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
