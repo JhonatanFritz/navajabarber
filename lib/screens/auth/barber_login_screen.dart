@@ -1,25 +1,25 @@
 import 'package:flutter/material.dart';
-import '../services/auth_service.dart';
-import 'home_barbero_screen.dart';
+import '../../services/auth_service.dart';
+import '../barber/home_barber_screen.dart';
 
-class BarberoLoginScreen extends StatefulWidget {
-  const BarberoLoginScreen({super.key});
+class BarberLoginScreen extends StatefulWidget {
+  const BarberLoginScreen({super.key});
 
   @override
-  State<BarberoLoginScreen> createState() => _BarberoLoginScreenState();
+  State<BarberLoginScreen> createState() => _BarberLoginScreenState();
 }
 
-class _BarberoLoginScreenState extends State<BarberoLoginScreen> {
+class _BarberLoginScreenState extends State<BarberLoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _authService = AuthService();
-  bool _cargando = false;
-  String? _errorMensaje;
+  bool _isLoading = false;
+  String? _errorMessage;
 
-  Future<void> _iniciarSesion() async {
+  Future<void> _signIn() async {
     setState(() {
-      _cargando = true;
-      _errorMensaje = null;
+      _isLoading = true;
+      _errorMessage = null;
     });
 
     final user = await _authService.signInBarbero(
@@ -27,16 +27,23 @@ class _BarberoLoginScreenState extends State<BarberoLoginScreen> {
       _passwordController.text.trim(),
     );
 
-    setState(() => _cargando = false);
+    setState(() => _isLoading = false);
 
     if (user != null && mounted) {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const HomeBarberoScreen()),
+        MaterialPageRoute(builder: (context) => const BarberHomeScreen()),
       );
     } else {
-      setState(() => _errorMensaje = 'Correo o contraseña incorrectos');
+      setState(() => _errorMessage = 'Correo o contraseña incorrectos');
     }
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
   }
 
   @override
@@ -60,15 +67,15 @@ class _BarberoLoginScreenState extends State<BarberoLoginScreen> {
               obscureText: true,
             ),
             const SizedBox(height: 24),
-            if (_errorMensaje != null)
+            if (_errorMessage != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 16),
-                child: Text(_errorMensaje!, style: const TextStyle(color: Colors.red)),
+                child: Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
               ),
-            _cargando
+            _isLoading
                 ? const CircularProgressIndicator()
                 : ElevatedButton(
-                    onPressed: _iniciarSesion,
+                    onPressed: _signIn,
                     child: const Text('Iniciar sesión'),
                   ),
           ],
