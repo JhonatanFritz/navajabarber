@@ -4,19 +4,28 @@ import '../models/service_model.dart';
 class ServiceCard extends StatelessWidget {
   final Service service;
   final VoidCallback? onTap;
+  final bool showDetailsLink;
+  final bool selected;
 
-  const ServiceCard({super.key, required this.service, this.onTap});
+  const ServiceCard({
+    super.key,
+    required this.service,
+    this.onTap,
+    this.showDetailsLink = true,
+    this.selected = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        height: 165,
+        height: 140,
         margin: const EdgeInsets.only(bottom: 16),
         decoration: BoxDecoration(
           color: Colors.black,
           borderRadius: BorderRadius.circular(20),
+          border: selected ? Border.all(color: const Color(0xFF5B3EF5), width: 3) : null,
         ),
         clipBehavior: Clip.antiAlias,
         child: Row(
@@ -34,6 +43,8 @@ class ServiceCard extends StatelessWidget {
                       children: [
                         Text(
                           service.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                               color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
                         ),
@@ -49,16 +60,18 @@ class ServiceCard extends StatelessWidget {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: const [
-                            Text('Ver detalles',
-                                style: TextStyle(
-                                    color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
-                            SizedBox(width: 4),
-                            Icon(Icons.arrow_forward, color: Colors.white, size: 14),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
+                        if (showDetailsLink) ...[
+                          Row(
+                            children: const [
+                              Text('Ver detalles',
+                                  style: TextStyle(
+                                      color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                              SizedBox(width: 4),
+                              Icon(Icons.arrow_forward, color: Colors.white, size: 14),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                        ],
                         Row(
                           children: [
                             const Icon(Icons.monetization_on_outlined, color: Colors.amber, size: 16),

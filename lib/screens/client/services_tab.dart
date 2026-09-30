@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+
 import '../../models/service_model.dart';
 import '../../services/service_api.dart';
 import '../../widgets/service_card.dart';
+import 'service_detail_screen.dart';
 
 class ServicesTab extends StatefulWidget {
   final VoidCallback? onBack;
@@ -63,7 +65,10 @@ class _ServicesTabState extends State<ServicesTab> {
                     icon: const Icon(Icons.arrow_back, size: 24),
                   ),
                   const SizedBox(width: 4),
-                  const Text('Servicios', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                  const Text(
+                    'Servicios',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -80,7 +85,9 @@ class _ServicesTabState extends State<ServicesTab> {
                       decoration: BoxDecoration(
                         color: isSelected ? Colors.black : Colors.white,
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: isSelected ? Colors.black : Colors.grey[300]!),
+                        border: Border.all(
+                          color: isSelected ? Colors.black : Colors.grey[300]!,
+                        ),
                       ),
                       child: Icon(
                         _iconForCategory(category),
@@ -92,8 +99,13 @@ class _ServicesTabState extends State<ServicesTab> {
               ),
 
               const SizedBox(height: 20),
-              Text(_labelForCategory(_selectedCategory),
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              Text(
+                _labelForCategory(_selectedCategory),
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               const SizedBox(height: 12),
 
               // --- Lista de servicios, obtenida dinámicamente de la API ---
@@ -106,20 +118,38 @@ class _ServicesTabState extends State<ServicesTab> {
                     }
 
                     if (snapshot.hasError) {
-                      return Center(child: Text('Error al cargar servicios: ${snapshot.error}'));
+                      return Center(
+                        child: Text(
+                          'Error al cargar servicios: ${snapshot.error}',
+                        ),
+                      );
                     }
 
                     final allServices = snapshot.data ?? [];
-                    final filtered =
-                        allServices.where((s) => s.category == _selectedCategory).toList();
+                    final filtered = allServices
+                        .where((s) => s.category == _selectedCategory)
+                        .toList();
 
                     if (filtered.isEmpty) {
-                      return const Center(child: Text('No hay servicios en esta categoría todavía'));
+                      return const Center(
+                        child: Text(
+                          'No hay servicios en esta categoría todavía',
+                        ),
+                      );
                     }
 
                     return ListView.builder(
                       itemCount: filtered.length,
-                      itemBuilder: (context, index) => ServiceCard(service: filtered[index]),
+                      itemBuilder: (context, index) => ServiceCard(
+                        service: filtered[index],
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                ServiceDetailScreen(service: filtered[index]),
+                          ),
+                        ),
+                      ),
                     );
                   },
                 ),

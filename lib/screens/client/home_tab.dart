@@ -1,9 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+
 import '../../models/barber_model.dart';
 import '../../models/news_item_model.dart';
 import '../../widgets/barber_card.dart';
 import '../../widgets/news_card.dart';
+import 'booking/select_service_screen.dart';
+import '../../models/appointment_model.dart';
+import '../../services/booking_service.dart';
+import '../../utils/date_formatter.dart';
+import '../../services/points_service.dart';
+import 'my_points_screen.dart';
+
+import 'package:barber/screens/client/my_appointments_screen.dart'; // ajusta si tu import relativo es distinto
 
 class HomeTab extends StatelessWidget {
   const HomeTab({super.key});
@@ -45,7 +54,10 @@ class HomeTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
-    final firstName = (user?.displayName ?? 'Cliente').split(' ').take(2).join(' ');
+    final firstName = (user?.displayName ?? 'Cliente')
+        .split(' ')
+        .take(2)
+        .join(' ');
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -93,48 +105,96 @@ class HomeTab extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // --- Próxima cita ---
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(20),
-                        gradient: const LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [_purple, _purpleDark],
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
+                    StreamBuilder<List<Appointment>>(
+                      stream: BookingService().streamMyAppointments(),
+                      builder: (context, snapshot) {
+                        Appointment? nextAppointment;
+
+                        if (snapshot.hasData) {
+                          final now = DateTime.now();
+                          final today = DateTime(now.year, now.month, now.day);
+                          final upcoming = snapshot.data!
+                              .where(
+                                (a) =>
+                                    a.estado == 'confirmada' &&
+                                    !a.fecha.isBefore(today),
+                              )
+                              .toList();
+                          if (upcoming.isNotEmpty) {
+                            nextAppointment = upcoming.first; // ya viene ordenado por fecha, ascendente
+                          }
+                        }
+
+                        if (nextAppointment == null) {
+                          return const SizedBox.shrink(); // no hay citas próximas: no se muestra nada
+                        }
+
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(20),
                             decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(20),
+                              gradient: const LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [_purple, _purpleDark],
+                              ),
                             ),
-                            child: const Icon(Icons.event_available, color: Colors.white),
-                          ),
-                          const SizedBox(width: 14),
-                          const Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                            child: Row(
                               children: [
-                                Text(
-                                  '11:11',
-                                  style: TextStyle(
-                                      color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.2),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Icon(
+                                    Icons.event_available,
+                                    color: Colors.white,
+                                  ),
                                 ),
-                                Text('Jueves, 11 de Diciembre',
-                                    style: TextStyle(color: Colors.white70, fontSize: 13)),
-                                SizedBox(height: 4),
-                                Text('Barba Italiana - Carlos J',
-                                    style: TextStyle(
-                                        color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        nextAppointment.hora,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 22,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      Text(
+                                        DateFormatter.longDate(
+                                          nextAppointment.fecha,
+                                        ),
+                                        style: const TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '${nextAppointment.servicioNombre} - ${nextAppointment.barberoNombre}',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ],
                             ),
                           ),
-                        ],
-                      ),
+                        );
+                      },
                     ),
                     const SizedBox(height: 16),
                     Row(
@@ -142,13 +202,24 @@ class HomeTab extends StatelessWidget {
                         Expanded(
                           child: OutlinedButton.icon(
                             onPressed: () {
-                              // TODO: navegar a la pantalla de agendar cita
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      const SelectServiceScreen(),
+                                ),
+                              );
                             },
-                            icon: const Icon(Icons.edit_calendar_outlined, size: 18),
+                            icon: const Icon(
+                              Icons.edit_calendar_outlined,
+                              size: 18,
+                            ),
                             label: const Text('Agendar'),
                             style: OutlinedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
                             ),
                           ),
                         ),
@@ -156,13 +227,24 @@ class HomeTab extends StatelessWidget {
                         Expanded(
                           child: OutlinedButton.icon(
                             onPressed: () {
-                              // TODO: navegar a la lista de citas del cliente
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      const MyAppointmentsScreen(),
+                                ),
+                              );
                             },
-                            icon: const Icon(Icons.event_note_outlined, size: 18),
+                            icon: const Icon(
+                              Icons.event_note_outlined,
+                              size: 18,
+                            ),
                             label: const Text('Citas'),
                             style: OutlinedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
                             ),
                           ),
                         ),
@@ -170,63 +252,119 @@ class HomeTab extends StatelessWidget {
                     ),
 
                     const SizedBox(height: 28),
-                    const Text('Tus puntos', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 12),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(20),
-                        gradient: const LinearGradient(
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                          colors: [Color(0xFF4A2FD9), Color(0xFF17B3A3)],
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: const [
-                                Row(
-                                  children: [
-                                    Text('BARBER CLUB',
-                                        style: TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w700,
-                                            letterSpacing: 1)),
-                                    SizedBox(width: 4),
-                                    Icon(Icons.auto_awesome, color: Colors.white, size: 14),
-                                  ],
-                                ),
-                                SizedBox(height: 8),
-                                Text('25',
-                                    style: TextStyle(
-                                        color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold)),
-                                Text('Puntos', style: TextStyle(color: Colors.white, fontSize: 13)),
-                                SizedBox(height: 6),
-                                Text('75 puntos para tu próxima recompensa',
-                                    style: TextStyle(color: Colors.white70, fontSize: 11)),
-                              ],
-                            ),
-                          ),
-                          Container(
-                            width: 56,
-                            height: 56,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 2),
-                            ),
-                            child: const Icon(Icons.star, color: Colors.white, size: 28),
-                          ),
-                        ],
+                    const Text(
+                      'Tus puntos',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
-
+                    const SizedBox(height: 12),
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const MyPointsScreen(),
+                          ),
+                        );
+                      },
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(20),
+                          gradient: const LinearGradient(
+                            begin: Alignment.centerLeft,
+                            end: Alignment.centerRight,
+                            colors: [Color(0xFF4A2FD9), Color(0xFF17B3A3)],
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: const [
+                                      Text(
+                                        'BARBER CLUB',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                          letterSpacing: 1,
+                                        ),
+                                      ),
+                                      SizedBox(width: 4),
+                                      Icon(
+                                        Icons.auto_awesome,
+                                        color: Colors.white,
+                                        size: 14,
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  StreamBuilder<int>(
+                                    stream: PointsService().streamMyPoints(),
+                                    builder: (context, snapshot) {
+                                      return Text(
+                                        '${snapshot.data ?? 0}',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 32,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                  const Text(
+                                    'Puntos',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  const Text(
+                                    '75 puntos para tu próxima recompensa',
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Container(
+                              width: 56,
+                              height: 56,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Colors.white,
+                                  width: 2,
+                                ),
+                              ),
+                              child: const Icon(
+                                Icons.star,
+                                color: Colors.white,
+                                size: 28,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                     const SizedBox(height: 28),
-                    const Text('Novedades', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    const Text(
+                      'Novedades',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     const SizedBox(height: 12),
 
                     // --- Novedades: se autogenera desde _sampleNews ---
@@ -236,13 +374,19 @@ class HomeTab extends StatelessWidget {
                         scrollDirection: Axis.horizontal,
                         itemCount: _sampleNews.length,
                         separatorBuilder: (_, __) => const SizedBox(width: 12),
-                        itemBuilder: (context, index) => NewsCard(item: _sampleNews[index]),
+                        itemBuilder: (context, index) =>
+                            NewsCard(item: _sampleNews[index]),
                       ),
                     ),
 
                     const SizedBox(height: 28),
-                    const Text('Nuestros profesionales',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    const Text(
+                      'Nuestros profesionales',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     const SizedBox(height: 12),
 
                     // --- Profesionales: se autogenera desde _sampleBarbers ---
@@ -252,7 +396,8 @@ class HomeTab extends StatelessWidget {
                         scrollDirection: Axis.horizontal,
                         itemCount: _sampleBarbers.length,
                         separatorBuilder: (_, __) => const SizedBox(width: 16),
-                        itemBuilder: (context, index) => BarberCard(barber: _sampleBarbers[index]),
+                        itemBuilder: (context, index) =>
+                            BarberCard(barber: _sampleBarbers[index]),
                       ),
                     ),
 
@@ -263,8 +408,13 @@ class HomeTab extends StatelessWidget {
                           // TODO: navegar a la lista completa de profesionales
                         },
                         style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 24,
+                            vertical: 12,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(24),
+                          ),
                         ),
                         child: const Text('Conoce a nuestros profesionales →'),
                       ),

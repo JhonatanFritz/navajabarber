@@ -7,7 +7,9 @@ class Service {
   final double price;
   final int durationMinutes;
   final ServiceCategory category;
-  final String imageUrl;
+  final String imageUrl; // imagen principal, usada en las tarjetas
+  final List<String> images; // galería para la pantalla de detalle
+  final List<String> includes; // qué incluye el servicio
 
   const Service({
     required this.id,
@@ -17,9 +19,10 @@ class Service {
     required this.durationMinutes,
     required this.category,
     required this.imageUrl,
+    this.images = const [],
+    this.includes = const [],
   });
 
-  // Cuando conectemos Firestore, armamos el objeto desde el documento así:
   factory Service.fromMap(String id, Map<String, dynamic> data) {
     return Service(
       id: id,
@@ -32,6 +35,8 @@ class Service {
         orElse: () => ServiceCategory.cortes,
       ),
       imageUrl: data['imagenUrl'] ?? '',
+      images: List<String>.from(data['imagenes'] ?? []),
+      includes: List<String>.from(data['incluye'] ?? []),
     );
   }
 }
