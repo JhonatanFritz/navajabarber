@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+
 import '../../services/points_service.dart';
+import 'my_redemptions_screen.dart';
 import 'points_history_screen.dart';
+import 'rewards_screen.dart';
 
 class MyPointsScreen extends StatelessWidget {
   const MyPointsScreen({super.key});
@@ -33,7 +36,10 @@ class MyPointsScreen extends StatelessWidget {
                     icon: const Icon(Icons.arrow_back, size: 24),
                   ),
                   const SizedBox(width: 4),
-                  const Text('Mis puntos', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                  const Text(
+                    'Mis puntos',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  ),
                 ],
               ),
               const SizedBox(height: 20),
@@ -61,25 +67,46 @@ class MyPointsScreen extends StatelessWidget {
                             children: [
                               Row(
                                 children: const [
-                                  Text('BARBER CLUB',
-                                      style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w700,
-                                          letterSpacing: 1)),
+                                  Text(
+                                    'BARBER CLUB',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 1,
+                                    ),
+                                  ),
                                   SizedBox(width: 4),
-                                  Icon(Icons.auto_awesome, color: Colors.white, size: 14),
+                                  Icon(
+                                    Icons.auto_awesome,
+                                    color: Colors.white,
+                                    size: 14,
+                                  ),
                                 ],
                               ),
                               const SizedBox(height: 8),
-                              Text('$points',
-                                  style: const TextStyle(
-                                      color: Colors.white, fontSize: 34, fontWeight: FontWeight.bold)),
-                              const Text('Puntos', style: TextStyle(color: Colors.white, fontSize: 13)),
+                              Text(
+                                '$points',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 34,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const Text(
+                                'Puntos',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                ),
+                              ),
                               const SizedBox(height: 6),
                               const Text(
                                 '75 puntos para tu próxima recompensa', // TODO: calcular según catálogo real
-                                style: TextStyle(color: Colors.white70, fontSize: 11),
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 11,
+                                ),
                               ),
                             ],
                           ),
@@ -91,7 +118,11 @@ class MyPointsScreen extends StatelessWidget {
                             shape: BoxShape.circle,
                             border: Border.all(color: Colors.white, width: 2),
                           ),
-                          child: const Icon(Icons.star, color: Colors.white, size: 28),
+                          child: const Icon(
+                            Icons.star,
+                            color: Colors.white,
+                            size: 28,
+                          ),
                         ),
                       ],
                     ),
@@ -104,15 +135,27 @@ class MyPointsScreen extends StatelessWidget {
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   onPressed: () {
-                    // TODO: navegar al catálogo de recompensas
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const RewardsScreen(),
+                      ),
+                    );
                   },
                   icon: const Icon(Icons.card_giftcard, color: _purple),
-                  label: const Text('Ver recompensas',
-                      style: TextStyle(color: _purple, fontWeight: FontWeight.bold)),
+                  label: const Text(
+                    'Ver recompensas',
+                    style: TextStyle(
+                      color: _purple,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFFFD23F),
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(28),
+                    ),
                     elevation: 0,
                   ),
                 ),
@@ -120,14 +163,19 @@ class MyPointsScreen extends StatelessWidget {
 
               const SizedBox(height: 28),
               const Center(
-                child:
-                    Text('¿Cómo conseguir puntos?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                child: Text(
+                  '¿Cómo conseguir puntos?',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
               ),
               const SizedBox(height: 12),
               ..._earnRates.map(
                 (rate) => Padding(
                   padding: const EdgeInsets.symmetric(vertical: 3),
-                  child: Text('+${rate.$2}  ${rate.$1}', style: const TextStyle(fontSize: 14)),
+                  child: Text(
+                    '+${rate.$2}  ${rate.$1}',
+                    style: const TextStyle(fontSize: 14),
+                  ),
                 ),
               ),
               const SizedBox(height: 8),
@@ -135,7 +183,11 @@ class MyPointsScreen extends StatelessWidget {
                 child: Text(
                   '* Los puntos se acreditan al completar tu cita',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.grey[600]),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontStyle: FontStyle.italic,
+                    color: Colors.grey[600],
+                  ),
                 ),
               ),
 
@@ -145,11 +197,38 @@ class MyPointsScreen extends StatelessWidget {
                   onPressed: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (context) => const PointsHistoryScreen()),
+                      MaterialPageRoute(
+                        builder: (context) => const PointsHistoryScreen(),
+                      ),
                     );
                   },
-                  child: const Text('Historial de puntos →',
-                      style: TextStyle(color: _purple, fontWeight: FontWeight.w600)),
+                  child: const Text(
+                    'Historial de puntos →',
+                    style: TextStyle(
+                      color: _purple,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Center(
+                child: TextButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const MyRedemptionsScreen(),
+                      ),
+                    );
+                  },
+                  child: const Text(
+                    'Mis recompensas →',
+                    style: TextStyle(
+                      color: _teal,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
