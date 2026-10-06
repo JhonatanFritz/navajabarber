@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/service_model.dart';
 import 'ai_tryon_screen.dart';
+import 'booking/select_barber_screen.dart';
 
 class ServiceDetailScreen extends StatefulWidget {
   final Service service;
@@ -280,7 +281,12 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
             width: double.infinity,
             child: ElevatedButton(
               onPressed: () {
-                // TODO: navegar al flujo de reserva del servicio
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => SelectBarberScreen(service: service),
+                  ),
+                );
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF7B5CF0),

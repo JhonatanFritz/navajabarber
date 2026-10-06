@@ -1,10 +1,17 @@
-import 'dart:math';
-
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
-
 import '../../../models/barber_model.dart';
 import '../../../models/service_model.dart';
+import '../../../utils/date_formatter.dart';
 import 'confirm_booking_screen.dart';
+
+/// Tramo ya ocupado, en minutos desde medianoche: [start, end).
+class _BusyRange {
+  final int start;
+  final int end;
+
+  const _BusyRange(this.start, this.end);
+}
 
 class SelectDateTimeScreen extends StatefulWidget {
   final Service service;
@@ -25,18 +32,8 @@ class _SelectDateTimeScreenState extends State<SelectDateTimeScreen> {
   static const _maxDaysAhead = 30;
 
   static const _monthNames = [
-    'Enero',
-    'Febrero',
-    'Marzo',
-    'Abril',
-    'Mayo',
-    'Junio',
-    'Julio',
-    'Agosto',
-    'Septiembre',
-    'Octubre',
-    'Noviembre',
-    'Diciembre',
+    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
   ];
   static const _dayAbbrev = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
@@ -47,6 +44,12 @@ class _SelectDateTimeScreenState extends State<SelectDateTimeScreen> {
   DateTime? _selectedDate;
   String? _selectedTime;
 
+  // Disponibilidad real del barbero en el día elegido
+  List<_BusyRange> _busy = [];
+  bool _loadingBusy = false;
+  String? _busyError;
+  int _requestId = 0; // descarta respuestas viejas si se cambia de día rápido
+
   @override
   void initState() {
     super.initState();
@@ -55,8 +58,69 @@ class _SelectDateTimeScreenState extends State<SelectDateTimeScreen> {
     _maxDate = _today.add(const Duration(days: _maxDaysAhead));
     _todayWeekStart = _today.subtract(Duration(days: _today.weekday - 1));
     _weekStart = _todayWeekStart;
-    _selectedDate =
-        _today; // el día actual empieza seleccionado, como en el mockup
+    _selectedDate = _today;
+
+    if (widget.barber != null) {
+      _loadingBusy = true;
+      _fetchBusy(_today);
+    }
+  }
+
+  int _toMinutes(String hhmm) {
+    final parts = hhmm.split(':');
+    return int.parse(parts[0]) * 60 + int.parse(parts[1]);
+  }
+
+  void _loadBusy(DateTime day) {
+    // "Cualquier profesional": todavía no se sabe cuántos barberos trabajan
+    // cada día, así que no se bloquea ningún horario.
+    // TODO: usar los barberos activos cuando existan en Firestore.
+    if (widget.barber == null) {
+      setState(() {
+        _busy = [];
+        _loadingBusy = false;
+        _busyError = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _loadingBusy = true;
+      _busyError = null;
+    });
+    _fetchBusy(day);
+  }
+
+  Future<void> _fetchBusy(DateTime day) async {
+    final requestId = ++_requestId;
+
+    try {
+      final response = await FirebaseFunctions.instance
+          .httpsCallable('obtenerHorariosOcupados')
+          .call({
+        'barberoId': widget.barber!.id,
+        'fechaTexto': DateFormatter.isoDate(day),
+      });
+
+      final data = Map<String, dynamic>.from(response.data as Map);
+      final ranges = (data['ocupados'] as List).map((item) {
+        final m = Map<String, dynamic>.from(item as Map);
+        final start = _toMinutes(m['hora'] as String);
+        return _BusyRange(start, start + (m['duracion'] as num).toInt());
+      }).toList();
+
+      if (!mounted || requestId != _requestId) return;
+      setState(() {
+        _busy = ranges;
+        _loadingBusy = false;
+      });
+    } catch (_) {
+      if (!mounted || requestId != _requestId) return;
+      setState(() {
+        _loadingBusy = false;
+        _busyError = 'No se pudo cargar la disponibilidad. Intenta de nuevo.';
+      });
+    }
   }
 
   bool _isSameDate(DateTime a, DateTime b) =>
@@ -79,6 +143,7 @@ class _SelectDateTimeScreenState extends State<SelectDateTimeScreen> {
       _selectedDate = day;
       _selectedTime = null; // al cambiar de día, se resetea la hora elegida
     });
+    _loadBusy(day);
   }
 
   List<DateTime> _monthOptions() {
@@ -100,8 +165,8 @@ class _SelectDateTimeScreenState extends State<SelectDateTimeScreen> {
     );
   }
 
-  // Genera los horarios posibles de un periodo (mañana/tarde), respetando
-  // que el servicio completo (inicio + duración) termine dentro del horario.
+  // Horarios posibles de un periodo; el servicio completo (inicio + duración)
+  // debe terminar dentro del periodo.
   List<String> _generateSlots(
     DateTime date,
     TimeOfDay periodStart,
@@ -129,36 +194,33 @@ class _SelectDateTimeScreenState extends State<SelectDateTimeScreen> {
       slots.add(
         '${current.hour.toString().padLeft(2, '0')}:${current.minute.toString().padLeft(2, '0')}',
       );
-      current = current.add(
-        const Duration(minutes: 30),
-      ); // los turnos inician cada 30 min
+      current = current.add(const Duration(minutes: 30));
     }
     return slots;
   }
 
-  // TODO: reemplazar por una consulta real a Firestore (citas de ese barbero en esa fecha).
-  // Mientras tanto, simulamos horarios ya ocupados de forma determinística (mismo
-  // resultado para la misma fecha + barbero, no cambia en cada rebuild).
+  // Quita los horarios que se cruzan con una cita del barbero
+  // y los que ya pasaron si el día elegido es hoy.
   List<String> _filterAvailable(List<String> allSlots, DateTime date) {
-    final seed = date.day + date.month * 31 + (widget.barber?.id.hashCode ?? 0);
-    final random = Random(seed);
-    final occupiedCount = min(1 + random.nextInt(3), allSlots.length);
-    final shuffled = List<String>.from(allSlots)..shuffle(random);
-    final occupied = shuffled.take(occupiedCount).toSet();
-
     final now = DateTime.now();
     final isToday = _isSameDate(date, _today);
+    final duration = widget.service.durationMinutes;
 
     return allSlots.where((slot) {
-      if (occupied.contains(slot)) return false;
+      final start = _toMinutes(slot);
+      final end = start + duration;
+
+      for (final busy in _busy) {
+        if (start < busy.end && end > busy.start) return false;
+      }
+
       if (isToday) {
-        final parts = slot.split(':');
         final slotTime = DateTime(
           date.year,
           date.month,
           date.day,
-          int.parse(parts[0]),
-          int.parse(parts[1]),
+          start ~/ 60,
+          start % 60,
         );
         if (slotTime.isBefore(now)) return false;
       }
@@ -190,22 +252,107 @@ class _SelectDateTimeScreenState extends State<SelectDateTimeScreen> {
     );
   }
 
+  Widget _buildSlots() {
+    if (_loadingBusy) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_busyError != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              _busyError!,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey[700]),
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: _selectedDate == null
+                  ? null
+                  : () => _loadBusy(_selectedDate!),
+              child: const Text('Reintentar'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final date = _selectedDate;
+    if (date == null) return const SizedBox.shrink();
+
+    final morningSlots = _filterAvailable(
+      _generateSlots(date, _morningStart, _morningEnd),
+      date,
+    );
+    final afternoonSlots = _filterAvailable(
+      _generateSlots(date, _afternoonStart, _afternoonEnd),
+      date,
+    );
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (morningSlots.isNotEmpty) ...[
+            Center(
+              child: Text(
+                'Mañana',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              alignment: WrapAlignment.center,
+              children: morningSlots.map(_buildTimeChip).toList(),
+            ),
+            const SizedBox(height: 20),
+          ],
+          if (afternoonSlots.isNotEmpty) ...[
+            Center(
+              child: Text(
+                'Tarde',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              alignment: WrapAlignment.center,
+              children: afternoonSlots.map(_buildTimeChip).toList(),
+            ),
+          ],
+          if (morningSlots.isEmpty && afternoonSlots.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 24),
+              child: Center(
+                child: Text(
+                  'No hay horarios disponibles para este día',
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final morningSlots = _selectedDate == null
-        ? <String>[]
-        : _filterAvailable(
-            _generateSlots(_selectedDate!, _morningStart, _morningEnd),
-            _selectedDate!,
-          );
-    final afternoonSlots = _selectedDate == null
-        ? <String>[]
-        : _filterAvailable(
-            _generateSlots(_selectedDate!, _afternoonStart, _afternoonEnd),
-            _selectedDate!,
-          );
-
-    final canContinue = _selectedDate != null && _selectedTime != null;
+    final canContinue = _selectedDate != null &&
+        _selectedTime != null &&
+        !_loadingBusy &&
+        _busyError == null;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -315,8 +462,7 @@ class _SelectDateTimeScreenState extends State<SelectDateTimeScreen> {
                         final day = _weekStart.add(Duration(days: i));
                         final isSelectable =
                             !day.isBefore(_today) && !day.isAfter(_maxDate);
-                        final isSelected =
-                            _selectedDate != null &&
+                        final isSelected = _selectedDate != null &&
                             _isSameDate(day, _selectedDate!);
 
                         return GestureDetector(
@@ -352,8 +498,8 @@ class _SelectDateTimeScreenState extends State<SelectDateTimeScreen> {
                                     color: !isSelectable
                                         ? Colors.grey[350]
                                         : (isSelected
-                                              ? const Color(0xFF5B3EF5)
-                                              : Colors.black87),
+                                            ? const Color(0xFF5B3EF5)
+                                            : Colors.black87),
                                   ),
                                 ),
                               ],
@@ -373,62 +519,7 @@ class _SelectDateTimeScreenState extends State<SelectDateTimeScreen> {
               ),
               const SizedBox(height: 12),
 
-              Expanded(
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (morningSlots.isNotEmpty) ...[
-                        Center(
-                          child: Text(
-                            'Mañana',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: Colors.grey[700],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 10,
-                          runSpacing: 10,
-                          alignment: WrapAlignment.center,
-                          children: morningSlots.map(_buildTimeChip).toList(),
-                        ),
-                        const SizedBox(height: 20),
-                      ],
-                      if (afternoonSlots.isNotEmpty) ...[
-                        Center(
-                          child: Text(
-                            'Tarde',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: Colors.grey[700],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 10,
-                          runSpacing: 10,
-                          alignment: WrapAlignment.center,
-                          children: afternoonSlots.map(_buildTimeChip).toList(),
-                        ),
-                      ],
-                      if (morningSlots.isEmpty && afternoonSlots.isEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 24),
-                          child: Center(
-                            child: Text(
-                              'No hay horarios disponibles para este día',
-                              style: TextStyle(color: Colors.grey[600]),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
+              Expanded(child: _buildSlots()),
             ],
           ),
         ),

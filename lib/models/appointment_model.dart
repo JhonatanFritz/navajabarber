@@ -10,8 +10,13 @@ class Appointment {
   final double servicioPrecio;
   final int servicioDuracion;
   final DateTime fecha;
+  final String? fechaTexto; // "2026-10-06"; las citas antiguas no lo tienen
   final String hora;
   final String estado;
+  final bool depositoPagado;
+  final double depositoMonto;
+  final String? pagoId;
+  final bool pagoSimulado;
 
   const Appointment({
     required this.id,
@@ -23,8 +28,13 @@ class Appointment {
     required this.servicioPrecio,
     required this.servicioDuracion,
     required this.fecha,
+    this.fechaTexto,
     required this.hora,
     required this.estado,
+    this.depositoPagado = false,
+    this.depositoMonto = 0,
+    this.pagoId,
+    this.pagoSimulado = false,
   });
 
   factory Appointment.fromMap(String id, Map<String, dynamic> data) {
@@ -38,8 +48,13 @@ class Appointment {
       servicioPrecio: (data['servicioPrecio'] ?? 0).toDouble(),
       servicioDuracion: data['servicioDuracion'] ?? 0,
       fecha: (data['fecha'] as Timestamp).toDate(),
+      fechaTexto: data['fechaTexto'],
       hora: data['hora'] ?? '',
       estado: data['estado'] ?? 'confirmada',
+      depositoPagado: data['depositoPagado'] ?? false,
+      depositoMonto: (data['depositoMonto'] ?? 0).toDouble(),
+      pagoId: data['pagoId'],
+      pagoSimulado: data['pagoSimulado'] ?? false,
     );
   }
 
@@ -53,8 +68,13 @@ class Appointment {
       'servicioPrecio': servicioPrecio,
       'servicioDuracion': servicioDuracion,
       'fecha': Timestamp.fromDate(fecha),
+      'fechaTexto': fechaTexto,
       'hora': hora,
       'estado': estado,
+      'depositoPagado': depositoPagado,
+      'depositoMonto': depositoMonto,
+      'pagoId': pagoId,
+      'pagoSimulado': pagoSimulado,
       'creadoEn': FieldValue.serverTimestamp(),
     };
   }
@@ -71,8 +91,13 @@ class Appointment {
       servicioPrecio: servicioPrecio,
       servicioDuracion: servicioDuracion,
       fecha: fecha,
+      fechaTexto: fechaTexto,
       hora: hora,
       estado: nuevoEstado,
+      depositoPagado: depositoPagado,
+      depositoMonto: depositoMonto,
+      pagoId: pagoId,
+      pagoSimulado: pagoSimulado,
     );
   }
 }

@@ -4,6 +4,7 @@ import '../../models/appointment_model.dart';
 import '../../services/booking_service.dart';
 import '../../utils/date_formatter.dart';
 import 'cancel_success_screen.dart';
+import '../../services/payment_service.dart';
 
 class AppointmentDetailScreen extends StatefulWidget {
   final Appointment appointment;
@@ -56,7 +57,11 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('¿Cancelar esta reserva?'),
-        content: const Text('Esta acción no se puede deshacer.'),
+        content: Text(
+          'Esta acción no se puede deshacer. El depósito de '
+          'S/ ${PaymentService.depositoReserva.toStringAsFixed(2)} que pagaste '
+          'no se devuelve al cancelar.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
