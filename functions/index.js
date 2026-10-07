@@ -11,17 +11,19 @@ const mpAccessToken = defineSecret("MP_ACCESS_TOKEN");
 
 // --- PAGO CON YAPE (MERCADO PAGO) ---
 
-// true = acepta los tokens falsos "sim_ok" / "sim_rechazado" (demostración
-// sin llamar a Mercado Pago). DEBE pasar a false antes de usar dinero real.
+// true = acepta los tokens falsos "sim_ok" / "sim_rechazado" (demostración).
+// DEBE pasar a false antes de usar dinero real.
 const MODO_SIMULADO = true;
 
-// true mientras se usen credenciales de PRUEBA de Mercado Pago (no hay dinero
-// real). Pasar a false solo cuando se instalen credenciales de producción.
+// true mientras se usen credenciales de PRUEBA (no hay dinero real).
 const PAGOS_DE_PRUEBA = true;
 
 // Depósito fijo de la reserva (S/ 5.00). Se define aquí, en el servidor.
 const DEPOSITO_RESERVA = "5.00";
 const DEPOSITO_RESERVA_CENTIMOS = 500;
+
+// Nombre que aparece en el resumen del comprador (máximo 13 caracteres).
+const DESCRIPTOR_RESUMEN = "NAVAJAMAESTRA";
 
 const MENSAJES_RECHAZO = {
   insufficient_amount: "Saldo insuficiente en Yape.",
@@ -33,8 +35,7 @@ const MENSAJES_RECHAZO = {
 };
 
 // Mercado Pago responde los pagos rechazados con HTTP 402. El motivo viene en
-// data.transactions.payments[0].status_detail y también en errors[0].details[0],
-// con la forma "ID_DEL_PAGO: motivo".
+// data.transactions.payments[0].status_detail y también en errors[0].details[0].
 function motivoDeRechazo(cuerpo) {
   const pago = cuerpo?.data?.transactions?.payments?.[0];
   if (pago?.status_detail) return pago.status_detail;
@@ -45,12 +46,39 @@ function motivoDeRechazo(cuerpo) {
   return null;
 }
 
-exports.cobrarYape = onCall({secrets: [mpAccessToken]}, async (request) => {
+// Separa el nombre de la cuenta de Google en nombre y apellido. Es una
+// aproximación: con 4 o más palabras toma las dos últimas como apellidos.
+function separarNombre(nombreCompleto) {
+  const partes = String(nombreCompleto || "")
+      .replace(/[^\p{L}\p{M}\s'.-]/gu, " ")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+  let nombre = "";
+  let apellido = "";
+  if (partes.length === 1) {
+    nombre = partes[0];
+  } else if (partes.length === 2) {
+    nombre = partes[0];
+    apellido = partes[1];
+  } else if (partes.length === 3) {
+    nombre = partes[0];
+    apellido = partes.slice(1).join(" ");
+  } else if (partes.length >= 4) {
+    nombre = partes.slice(0, partes.length - 2).join(" ");
+    apellido = partes.slice(-2).join(" ");
+  }
+  return {nombre: nombre.slice(0, 50), apellido: apellido.slice(0, 50)};
+}
+
+// Lógica común del cobro. extendido=false reproduce la order original;
+// extendido=true agrega ítems, nombre, descriptor y DNI opcional.
+async function procesarCobro(request, extendido) {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Debes iniciar sesión para pagar.");
   }
 
-  const {tokenId, celular} = request.data;
+  const {tokenId, celular, dni} = request.data || {};
   if (!tokenId || typeof tokenId !== "string") {
     throw new HttpsError("invalid-argument", "Falta el token de pago.");
   }
@@ -79,9 +107,57 @@ exports.cobrarYape = onCall({secrets: [mpAccessToken]}, async (request) => {
     throw new HttpsError("invalid-argument", "El celular de Yape no es válido.");
   }
 
+  let dniValido = null;
+  if (extendido && dni !== undefined && dni !== null && dni !== "") {
+    if (typeof dni !== "string" || !/^\d{8}$/.test(dni)) {
+      throw new HttpsError("invalid-argument", "El DNI debe tener 8 dígitos.");
+    }
+    dniValido = dni;
+  }
+
   const emailPagador = request.auth.token.email;
   if (!emailPagador) {
     throw new HttpsError("failed-precondition", "Tu cuenta no tiene un correo asociado.");
+  }
+
+  const orden = {
+    type: "online",
+    external_reference: `reserva-${request.auth.uid}-${Date.now()}`,
+    processing_mode: "automatic",
+    total_amount: DEPOSITO_RESERVA,
+    payer: {
+      email: emailPagador,
+      entity_type: "individual",
+      phone: {area_code: "51", number: celular},
+    },
+    transactions: {
+      payments: [
+        {
+          amount: DEPOSITO_RESERVA,
+          payment_method: {id: "yape", type: "debit_card", token: tokenId},
+        },
+      ],
+    },
+  };
+
+  if (extendido) {
+    orden.description = "Depósito de reserva - La Navaja Maestra";
+    orden.items = [
+      {
+        title: "Depósito de reserva",
+        unit_price: DEPOSITO_RESERVA,
+        quantity: 1,
+        description: "Depósito de reserva de cita",
+        external_code: "deposito-reserva",
+        category_id: "services",
+      },
+    ];
+    const {nombre, apellido} = separarNombre(request.auth.token.name);
+    if (nombre) orden.payer.first_name = nombre;
+    if (apellido) orden.payer.last_name = apellido;
+    if (dniValido) orden.payer.identification = {type: "DNI", number: dniValido};
+    orden.transactions.payments[0].payment_method.statement_descriptor =
+      DESCRIPTOR_RESUMEN;
   }
 
   let response;
@@ -93,25 +169,7 @@ exports.cobrarYape = onCall({secrets: [mpAccessToken]}, async (request) => {
         "Content-Type": "application/json",
         "X-Idempotency-Key": crypto.randomUUID(),
       },
-      body: JSON.stringify({
-        type: "online",
-        external_reference: `reserva-${request.auth.uid}-${Date.now()}`,
-        processing_mode: "automatic",
-        total_amount: DEPOSITO_RESERVA,
-        payer: {
-          email: emailPagador,
-          entity_type: "individual",
-          phone: {area_code: "51", number: celular},
-        },
-        transactions: {
-          payments: [
-            {
-              amount: DEPOSITO_RESERVA,
-              payment_method: {id: "yape", type: "debit_card", token: tokenId},
-            },
-          ],
-        },
-      }),
+      body: JSON.stringify(orden),
     });
   } catch (e) {
     console.error("No se pudo contactar a Mercado Pago", e);
@@ -137,8 +195,12 @@ exports.cobrarYape = onCall({secrets: [mpAccessToken]}, async (request) => {
       );
     }
 
-    // Cualquier otro error: se guarda el detalle completo para depurar.
-    console.error("Mercado Pago respondió con error", response.status, JSON.stringify(data));
+    // Otro error: se registra solo el detalle de los errores (sin datos del pagador).
+    console.error(
+        "Mercado Pago respondió con error",
+        response.status,
+        JSON.stringify(data.errors || data.message || "sin detalle"),
+    );
     throw new HttpsError("failed-precondition", "No se pudo procesar el pago. Intenta de nuevo.");
   }
 
@@ -160,11 +222,22 @@ exports.cobrarYape = onCall({secrets: [mpAccessToken]}, async (request) => {
     monto: DEPOSITO_RESERVA_CENTIMOS,
     chargeId: data.id,
   };
-});
+}
+
+// Versión original: la usa la demo del jueves.
+exports.cobrarYape = onCall(
+    {secrets: [mpAccessToken]},
+    (request) => procesarCobro(request, false),
+);
+
+// Versión nueva: ítems, nombre, descriptor y DNI opcional. La usa la copia de Play.
+exports.cobrarYapeV2 = onCall(
+    {secrets: [mpAccessToken], invoker: "public"},
+    (request) => procesarCobro(request, true),
+);
 
 // --- HORARIOS OCUPADOS ---
 // Devuelve solo hora y duración de las citas confirmadas de un barbero en un día.
-// No expone ningún dato de otros clientes.
 exports.obtenerHorariosOcupados = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Debes iniciar sesión.");
@@ -194,12 +267,10 @@ exports.obtenerHorariosOcupados = onCall(async (request) => {
 
 // --- RECORDATORIOS ---
 
-// Canal de Android con importancia máxima (el mismo que crea la app en
-// NotificationService). Sin él, el push no sale como popup.
+// Canal de Android con importancia máxima (el mismo que crea la app).
 const CANAL_ANDROID = "high_importance_channel";
 
-// El aviso de "hoy tienes una cita" no se envía antes de esta hora (Lima),
-// para no avisar de madrugada.
+// El aviso de "hoy tienes una cita" no se envía antes de esta hora (Lima).
 const HORA_MINIMA_AVISO_DIA = 7;
 
 // Lima es UTC-5 todo el año (no tiene horario de verano).
@@ -279,8 +350,7 @@ exports.enviarRecordatoriosCitas = onSchedule("every 15 minutes", async (event) 
       }
       const diffMin = (fechaHoraCita - ahora) / 60000;
 
-      // Ventana de "1 hora antes": 45 a 60 minutos. Como la función corre cada
-      // 15 minutos, cada cita cae en esta ventana una sola vez.
+      // Ventana de "1 hora antes": 45 a 60 minutos (una vez por cita).
       const avisarUnaHora =
         diffMin <= 60 && diffMin > 45 && !cita.recordatorio1hEnviado;
 
@@ -297,7 +367,6 @@ exports.enviarRecordatoriosCitas = onSchedule("every 15 minutes", async (event) 
             "Tu cita es en 1 hora",
             `${cita.servicioNombre} a las ${cita.hora}`,
         );
-        // Si ya avisamos de la hora, el aviso del día queda sin efecto.
         await doc.ref.update({
           recordatorio1hEnviado: true,
           recordatorioDiaEnviado: true,

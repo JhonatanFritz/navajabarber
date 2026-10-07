@@ -18,6 +18,7 @@ class YapePaymentScreen extends StatefulWidget {
 
 class _YapePaymentScreenState extends State<YapePaymentScreen> {
   final _phoneController = TextEditingController();
+  final _dniController = TextEditingController();
   final _codeController = TextEditingController();
   bool _isProcessing = false;
   String? _errorMessage;
@@ -25,21 +26,27 @@ class _YapePaymentScreenState extends State<YapePaymentScreen> {
   String get _modeNotice {
     if (PaymentService.simulado) {
       return 'Modo demostración: no se cobrará dinero real. '
-          'Usa cualquier código de 6 dígitos (000000 simula un pago rechazado).';
+          'Usa cualquier código de 6 dígitos (000000 simula un pago rechazado) '
+          'y cualquier DNI de 8 dígitos.';
     }
     if (PaymentService.pagosDePrueba) {
       return 'Modo de pruebas: no se cobrará dinero real. '
-          'Usa el celular 111111111 y el código 123456 para simular un pago aprobado.';
+          'Usa el celular 111111111, el código 123456 y cualquier DNI de 8 dígitos.';
     }
     return '';
   }
 
   Future<void> _pagar() async {
     final phone = _phoneController.text.trim();
+    final dni = _dniController.text.trim();
     final code = _codeController.text.trim();
 
     if (phone.length != 9 || code.length != 6) {
       setState(() => _errorMessage = 'Ingresa un celular de 9 dígitos y un código de 6 dígitos');
+      return;
+    }
+    if (dni.isEmpty ? PaymentService.dniObligatorio : dni.length != 8) {
+      setState(() => _errorMessage = 'Ingresa tu DNI de 8 dígitos');
       return;
     }
 
@@ -62,6 +69,7 @@ class _YapePaymentScreenState extends State<YapePaymentScreen> {
         celular: phone,
         email: widget.email,
         descripcion: widget.description,
+        dni: dni,
       );
 
       if (!mounted) return;
@@ -78,6 +86,7 @@ class _YapePaymentScreenState extends State<YapePaymentScreen> {
   @override
   void dispose() {
     _phoneController.dispose();
+    _dniController.dispose();
     _codeController.dispose();
     super.dispose();
   }
@@ -136,6 +145,20 @@ class _YapePaymentScreenState extends State<YapePaymentScreen> {
                 maxLength: 9,
                 decoration: const InputDecoration(
                   labelText: 'Celular asociado a Yape',
+                  counterText: '',
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _dniController,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                maxLength: 8,
+                decoration: InputDecoration(
+                  labelText: PaymentService.dniObligatorio ? 'DNI' : 'DNI (opcional)',
+                  helperText:
+                      'Se envía a Mercado Pago solo para validar el pago. No lo guardamos.',
+                  helperMaxLines: 2,
                   counterText: '',
                 ),
               ),

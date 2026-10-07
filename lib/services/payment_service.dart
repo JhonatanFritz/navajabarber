@@ -19,19 +19,23 @@ class PaymentResult {
 
 class PaymentService {
   // true = pago simulado sin llamar a Mercado Pago (tokens falsos).
-  // Debe coincidir con MODO_SIMULADO en functions/index.js.
   static const bool simulado = false;
 
-  // true = se usan credenciales de PRUEBA de Mercado Pago: no se cobra dinero
-  // real. Debe coincidir con PAGOS_DE_PRUEBA en functions/index.js.
+  // true = credenciales de PRUEBA de Mercado Pago: no se cobra dinero real.
   static const bool pagosDePrueba = true;
 
-  // Depósito de reserva en soles. Solo sirve para mostrarlo en pantalla:
-  // el monto que realmente se cobra lo define el servidor.
+  // Depósito de reserva en soles (solo para mostrarlo; el monto real lo fija el servidor).
   static const double depositoReserva = 5.0;
 
-  // Public Key de PRUEBA de Mercado Pago (Credenciales de prueba).
-  // La llave pública no es secreta. NUNCA pongas aquí el Access Token.
+  // true = la pantalla de pago exige el DNI (8 dígitos). Se envía a Mercado Pago
+  // y no se guarda en ningún lado.
+  static const bool dniObligatorio = true;
+
+  // Función de cobro en Firebase. La versión V2 envía ítems, nombre y DNI.
+  // La demo del jueves usa 'cobrarYape'.
+  static const String _funcionCobro = 'cobrarYapeV2';
+
+  // Public Key de PRUEBA de Mercado Pago. No es secreta. NUNCA pongas aquí el Access Token.
   static const String _mpPublicKey = 'APP_USR-91cbcc37-57d7-4f64-ba4b-51189af29895';
 
   Future<String> createYapeToken({
@@ -91,16 +95,20 @@ class PaymentService {
     required String celular,
     required String email,
     required String descripcion,
+    String? dni,
   }) async {
     try {
-      final response = await FirebaseFunctions.instance
-          .httpsCallable('cobrarYape')
-          .call({
+      final payload = <String, dynamic>{
         'tokenId': tokenId,
         'celular': celular,
         'email': email, // el servidor usa el correo de la sesión; esto es informativo
         'descripcion': descripcion,
-      });
+      };
+      if (dni != null && dni.isNotEmpty) payload['dni'] = dni;
+
+      final response = await FirebaseFunctions.instance
+          .httpsCallable(_funcionCobro)
+          .call(payload);
 
       final data = Map<String, dynamic>.from(response.data as Map);
       return PaymentResult(
