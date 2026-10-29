@@ -100,7 +100,7 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
   Widget build(BuildContext context) {
     final a = _appointment;
     final bloqueo = _reprogramarBloqueadoMotivo(a);
-    final estado = AppointmentStatus.from(a.estado);
+    final estado = AppointmentStatus.from(a.estadoEfectivo);
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -129,7 +129,7 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
                 child: Text(
                   a.estado == 'cancelada'
                       ? 'Reserva cancelada'
-                      : (a.estado == 'confirmada'
+                      : (a.estadoEfectivo == 'confirmada'
                           ? 'Reserva confirmada'
                           : estado.label),
                   style: const TextStyle(
@@ -253,8 +253,18 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
                 ],
               ),
 
+              if (a.estadoEfectivo == 'vencida')
+                Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Text(
+                    'La hora de esta cita ya pasó y la barbería aún no la '
+                    'registró. Si tienes dudas, comunícate con la barbería.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                  ),
+                ),
+
               const Spacer(),
-              if (a.estado == 'confirmada') ...[
+              if (a.estadoEfectivo == 'confirmada') ...[
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(

@@ -11,6 +11,62 @@ class BookingService {
     return docRef.id;
   }
 
+  /// Crea la cita a través de la función `crearCita`, que verifica en el
+  /// servidor que el anticipo esté pagado, que el pago no se haya usado antes
+  /// y que el horario siga libre. Devuelve el id de la cita.
+  /// Lanza [FirebaseFunctionsException] con un mensaje listo para mostrar.
+  Future<String> createPaidAppointment(Appointment a) async {
+    final response =
+        await FirebaseFunctions.instance.httpsCallable('crearCita').call({
+      'pagoId': a.pagoId,
+      'servicioNombre': a.servicioNombre,
+      'servicioPrecio': a.servicioPrecio,
+      'servicioDuracion': a.servicioDuracion,
+      'barberoId': a.barberoId,
+      'barberoNombre': a.barberoNombre,
+      'barberoEspecialidad': a.barberoEspecialidad,
+      'fechaTexto': a.fechaTexto,
+      'hora': a.hora,
+    });
+    final data = Map<String, dynamic>.from(response.data as Map);
+    return data['citaId'] as String;
+  }
+
+  /// Pregunta al servidor si el horario sigue libre para ese barbero.
+  /// Con "Cualquier profesional" (sin barbero) no hay nada que comprobar.
+  /// Si no se puede consultar, devuelve true: la verificación definitiva
+  /// la hace `crearCita` al confirmar.
+  Future<bool> slotLibre({
+    required String? barberoId,
+    required String fechaTexto,
+    required String hora,
+    required int duracion,
+  }) async {
+    if (barberoId == null) return true;
+    try {
+      final response = await FirebaseFunctions.instance
+          .httpsCallable('obtenerHorariosOcupados')
+          .call({'barberoId': barberoId, 'fechaTexto': fechaTexto});
+      final data = Map<String, dynamic>.from(response.data as Map);
+      final inicio = _minutos(hora);
+      final fin = inicio + duracion;
+      for (final item in (data['ocupados'] as List)) {
+        final m = Map<String, dynamic>.from(item as Map);
+        final otroInicio = _minutos(m['hora'] as String);
+        final otroFin = otroInicio + (m['duracion'] as num).toInt();
+        if (inicio < otroFin && fin > otroInicio) return false;
+      }
+      return true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  int _minutos(String hhmm) {
+    final p = hhmm.split(':');
+    return int.parse(p[0]) * 60 + int.parse(p[1]);
+  }
+
   Future<void> cancelAppointment(String id) async {
     await _db.collection('citas').doc(id).update({'estado': 'cancelada'});
   }

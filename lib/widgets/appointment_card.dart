@@ -37,7 +37,7 @@ class AppointmentCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final estado = AppointmentStatus.from(appointment.estado);
+    final estado = AppointmentStatus.from(appointment.estadoEfectivo);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),

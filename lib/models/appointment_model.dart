@@ -106,6 +106,17 @@ class Appointment {
       !reprogramada &&
       inicio.difference(DateTime.now()) >= const Duration(hours: 3);
 
+  /// Estado para mostrar: una cita "confirmada" cuya hora ya pasó (más los
+  /// 15 minutos de tolerancia) y que nadie marcó se muestra como "vencida".
+  /// No cambia nada en la base de datos; solo es cómo se ve.
+  String get estadoEfectivo {
+    if (estado == 'confirmada' &&
+        DateTime.now().isAfter(inicio.add(const Duration(minutes: 15)))) {
+      return 'vencida';
+    }
+    return estado;
+  }
+
   // Crea una copia con el estado cambiado, sin tocar el resto de los datos
   Appointment copyWithEstado(String nuevoEstado) {
     return Appointment(

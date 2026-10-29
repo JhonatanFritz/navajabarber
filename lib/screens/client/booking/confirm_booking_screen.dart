@@ -1,3 +1,4 @@
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../../models/appointment_model.dart';
@@ -39,6 +40,27 @@ class _ConfirmBookingScreenState extends State<ConfirmBookingScreen> {
 
     setState(() => _saving = true);
 
+    // 0. Antes de cobrar, comprueba que el horario siga libre.
+    final libre = await BookingService().slotLibre(
+      barberoId: widget.barber?.id,
+      fechaTexto: DateFormatter.isoDate(widget.date),
+      hora: widget.time,
+      duracion: widget.service.durationMinutes,
+    );
+    if (!libre) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Ese horario acaba de ser tomado por otro cliente. Elige otro.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
     // 1. Primero el pago del depósito.
     final payment = await Navigator.push<PaymentResult>(
       context,
@@ -77,7 +99,19 @@ class _ConfirmBookingScreenState extends State<ConfirmBookingScreen> {
     );
 
     try {
-      await BookingService().createAppointment(appointment);
+      // El servidor verifica el pago y el horario antes de crear la cita.
+      await BookingService().createPaidAppointment(appointment);
+    } on FirebaseFunctionsException catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.message ?? 'No se pudo confirmar la reserva.'),
+            duration: const Duration(seconds: 8),
+          ),
+        );
+      }
+      return;
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);

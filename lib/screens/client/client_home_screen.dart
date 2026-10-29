@@ -2,7 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/auth_service.dart';
 import '../../widgets/profile_menu_item.dart';
+import '../../utils/barberia_info.dart';
 import '../auth/login_screen.dart';
+import 'profile/ayuda_screen.dart';
+import 'profile/datos_personales_screen.dart';
+import 'profile/sobre_barberia_screen.dart';
+import 'profile/terminos_screen.dart';
 
 class ClientHomeScreen extends StatelessWidget {
   final VoidCallback? onBack;
@@ -93,21 +98,23 @@ class ClientHomeScreen extends StatelessWidget {
                 icon: Icons.person_outline,
                 label: 'Datos personales',
                 onTap: () {
-                  // TODO: navegar a la pantalla de datos personales
-                },
-              ),
-              ProfileMenuItem(
-                icon: Icons.lock_outline,
-                label: 'Contraseña',
-                onTap: () {
-                  // TODO: navegar al cambio de contraseña
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const DatosPersonalesScreen(),
+                    ),
+                  );
                 },
               ),
               ProfileMenuItem(
                 icon: Icons.notifications_outlined,
                 label: 'Preferencias de notificaciones',
                 onTap: () {
-                  // TODO: navegar a preferencias de notificaciones
+                  // TODO: pantalla de preferencias (la función de recordatorios
+                  // debe respetarlas antes de activarla).
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Próximamente')),
+                  );
                 },
               ),
 
@@ -140,11 +147,27 @@ class ClientHomeScreen extends StatelessWidget {
 
               const SizedBox(height: 24),
               ProfileMenuItem(
+                icon: Icons.storefront_outlined,
+                label: 'Sobre ${BarberiaInfo.nombre}',
+                showArrow: false,
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const SobreBarberiaScreen(),
+                    ),
+                  );
+                },
+              ),
+              ProfileMenuItem(
                 icon: Icons.help_outline,
                 label: 'Ayuda',
                 showArrow: false,
                 onTap: () {
-                  // TODO: navegar a ayuda
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const AyudaScreen()),
+                  );
                 },
               ),
               ProfileMenuItem(
@@ -152,7 +175,10 @@ class ClientHomeScreen extends StatelessWidget {
                 label: 'Términos y condiciones',
                 showArrow: false,
                 onTap: () {
-                  // TODO: navegar a términos y condiciones
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const TerminosScreen()),
+                  );
                 },
               ),
 

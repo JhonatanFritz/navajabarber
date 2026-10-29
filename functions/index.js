@@ -799,7 +799,7 @@ exports.reprogramarCita = onCall(async (request) => {
           "Ya reprogramaste esta cita una vez. No se puede volver a reprogramar.",
       );
     }
-    if (!cita.barberoId || !cita.fechaTexto || !cita.hora) {
+    if (!cita.fechaTexto || !cita.hora) {
       throw new HttpsError("failed-precondition", "La cita tiene datos incompletos.");
     }
 
@@ -832,24 +832,28 @@ exports.reprogramarCita = onCall(async (request) => {
       throw new HttpsError("failed-precondition", "Ese horario no está disponible.");
     }
 
-    // El barbero no debe tener otra cita confirmada que se cruce.
-    const delDia = await t.get(
-        db.collection("citas")
-            .where("barberoId", "==", cita.barberoId)
-            .where("fechaTexto", "==", fechaTexto)
-            .where("estado", "==", "confirmada"),
-    );
-    for (const d of delDia.docs) {
-      if (d.id === citaId) continue;
-      const otra = d.data();
-      const inicioOtra = aMinutos(otra.hora);
-      const durOtra = Number(otra.servicioDuracion) || 0;
-      if (inicioOtra === null) continue;
-      if (inicioNuevo < inicioOtra + durOtra && inicioOtra < inicioNuevo + duracion) {
-        throw new HttpsError(
-            "failed-precondition",
-            "Ese horario ya fue tomado por otro cliente. Elige otro.",
-        );
+    // Con un barbero asignado, no debe tener otra cita confirmada que se cruce.
+    // Si la reserva fue con "Cualquier profesional" (sin barbero), no hay con
+    // quién cruzarse, igual que al reservar.
+    if (cita.barberoId) {
+      const delDia = await t.get(
+          db.collection("citas")
+              .where("barberoId", "==", cita.barberoId)
+              .where("fechaTexto", "==", fechaTexto)
+              .where("estado", "==", "confirmada"),
+      );
+      for (const d of delDia.docs) {
+        if (d.id === citaId) continue;
+        const otra = d.data();
+        const inicioOtra = aMinutos(otra.hora);
+        const durOtra = Number(otra.servicioDuracion) || 0;
+        if (inicioOtra === null) continue;
+        if (inicioNuevo < inicioOtra + durOtra && inicioOtra < inicioNuevo + duracion) {
+          throw new HttpsError(
+              "failed-precondition",
+              "Ese horario ya fue tomado por otro cliente. Elige otro.",
+          );
+        }
       }
     }
 
@@ -868,6 +872,156 @@ exports.reprogramarCita = onCall(async (request) => {
   });
 
   return {ok: true, fechaTexto, hora};
+});
+
+// --- CREAR CITA CON PAGO VERIFICADO ---
+// La app ya no escribe en `citas`: llama a esta función, que comprueba en
+// Mercado Pago que el anticipo está pagado, que ese pago no se usó antes y que
+// el horario sigue libre, todo antes de crear la cita.
+exports.crearCita = onCall({secrets: [mpAccessToken]}, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Debes iniciar sesión.");
+  }
+  const uid = request.auth.uid;
+  const d = request.data || {};
+  const {
+    pagoId, servicioNombre, barberoId, barberoNombre,
+    barberoEspecialidad, fechaTexto, hora,
+  } = d;
+  const servicioPrecio = Number(d.servicioPrecio);
+  const servicioDuracion = Number(d.servicioDuracion);
+
+  if (
+    typeof pagoId !== "string" || !pagoId || pagoId.length > 100 ||
+    typeof servicioNombre !== "string" || !servicioNombre || servicioNombre.length > 120 ||
+    typeof barberoNombre !== "string" || !barberoNombre || barberoNombre.length > 120 ||
+    (barberoId !== null && barberoId !== undefined && typeof barberoId !== "string") ||
+    (barberoEspecialidad !== null && barberoEspecialidad !== undefined &&
+      typeof barberoEspecialidad !== "string") ||
+    typeof fechaTexto !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(fechaTexto) ||
+    typeof hora !== "string" ||
+    !Number.isFinite(servicioPrecio) || servicioPrecio < 0 || servicioPrecio > 5000 ||
+    !Number.isInteger(servicioDuracion) || servicioDuracion < 5 || servicioDuracion > 480
+  ) {
+    throw new HttpsError("invalid-argument", "Faltan datos o tienen formato incorrecto.");
+  }
+
+  // Fecha y hora válidas, dentro de los 30 días y en el horario de atención.
+  const inicioMin = aMinutos(hora);
+  if (inicioMin === null) {
+    throw new HttpsError("invalid-argument", "La hora no es válida.");
+  }
+  const fechaCita = new Date(`${fechaTexto}T00:00:00-05:00`);
+  if (isNaN(fechaCita.getTime()) || diaEnLima(fechaCita) !== fechaTexto) {
+    throw new HttpsError("invalid-argument", "La fecha no es válida.");
+  }
+  const ahora = new Date();
+  const hoyLima = diaEnLima(ahora);
+  const limiteLima = diaEnLima(
+      new Date(ahora.getTime() + DIAS_MAXIMOS_RESERVA * 24 * 60 * 60 * 1000),
+  );
+  if (fechaTexto < hoyLima) {
+    throw new HttpsError("failed-precondition", "No puedes elegir una fecha pasada.");
+  }
+  if (fechaTexto > limiteLima) {
+    throw new HttpsError("failed-precondition", "Solo puedes reservar hasta 30 días hacia adelante.");
+  }
+  if (new Date(`${fechaTexto}T${hora}:00-05:00`) <= ahora) {
+    throw new HttpsError("failed-precondition", "Elige un horario que aún no haya pasado.");
+  }
+  const cabe = PERIODOS_ATENCION.some(
+      (p) => inicioMin >= p.desde && inicioMin + servicioDuracion <= p.hasta,
+  );
+  if (!cabe || inicioMin % 30 !== 0) {
+    throw new HttpsError("failed-precondition", "Ese horario no está disponible.");
+  }
+
+  // El anticipo debe estar realmente pagado por este cliente.
+  const esDemo = pagoId.startsWith("sim_");
+  if (esDemo && !MODO_SIMULADO) {
+    throw new HttpsError("failed-precondition", "No pudimos verificar tu pago.");
+  }
+  if (!esDemo) {
+    const pago = await verificarPago(pagoId, uid);
+    if (!pago) {
+      throw new HttpsError("failed-precondition", "No pudimos verificar tu pago.");
+    }
+  }
+
+  const pagoRef = db.collection("pagos").doc(pagoId);
+  const citaRef = db.collection("citas").doc();
+
+  const resultado = await db.runTransaction(async (t) => {
+    // Un mismo pago solo puede servir para una cita. Si es un reintento del
+    // mismo cliente, devuelve la cita que ya se creó.
+    const pagoSnap = await t.get(pagoRef);
+    if (pagoSnap.exists) {
+      const previo = pagoSnap.data();
+      if (previo.clienteId === uid && previo.citaId) {
+        return {citaId: previo.citaId, repetido: true};
+      }
+      throw new HttpsError("already-exists", "Este pago ya se usó para otra reserva.");
+    }
+
+    // Con un barbero asignado, no puede tener otra cita que se cruce.
+    if (barberoId) {
+      const delDia = await t.get(
+          db.collection("citas")
+              .where("barberoId", "==", barberoId)
+              .where("fechaTexto", "==", fechaTexto)
+              .where("estado", "==", "confirmada"),
+      );
+      for (const doc of delDia.docs) {
+        const otra = doc.data();
+        const inicioOtra = aMinutos(otra.hora);
+        const durOtra = Number(otra.servicioDuracion) || 0;
+        if (inicioOtra === null) continue;
+        if (inicioMin < inicioOtra + durOtra && inicioOtra < inicioMin + servicioDuracion) {
+          console.warn(`Horario ocupado tras el pago ${pagoId} (cliente ${uid}).`);
+          throw new HttpsError(
+              "failed-precondition",
+              "Ese horario acaba de ser tomado por otro cliente. Tu pago " +
+              `(N.º ${pagoId}) quedó registrado: comunícate con la barbería ` +
+              "para reprogramar o recibir la devolución.",
+          );
+        }
+      }
+    }
+
+    t.set(citaRef, {
+      clienteId: uid,
+      barberoId: barberoId || null,
+      barberoNombre,
+      barberoEspecialidad: barberoEspecialidad || null,
+      servicioNombre,
+      servicioPrecio,
+      servicioDuracion,
+      fecha: admin.firestore.Timestamp.fromDate(fechaCita),
+      fechaTexto,
+      hora,
+      estado: "confirmada",
+      depositoPagado: true,
+      depositoMonto: Number(DEPOSITO_RESERVA),
+      pagoId,
+      pagoSimulado: esDemo,
+      reprogramada: false,
+      creadoEn: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    t.set(pagoRef, {
+      orderId: pagoId,
+      clienteId: uid,
+      citaId: citaRef.id,
+      monto: Number(DEPOSITO_RESERVA),
+      moneda: "PEN",
+      metodo: "yape",
+      estado: "aprobado",
+      simulado: esDemo,
+      creadoEn: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    return {citaId: citaRef.id, repetido: false};
+  });
+
+  return resultado;
 });
 
 // --- HORARIOS OCUPADOS ---

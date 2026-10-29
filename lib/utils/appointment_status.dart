@@ -14,6 +14,9 @@ class AppointmentStatus {
       case 'confirmada':
         return const AppointmentStatus._(
             'Confirmada', Icons.check_circle, Colors.green);
+      case 'vencida':
+        return AppointmentStatus._(
+            'Cita vencida', Icons.history, Colors.grey.shade600);
       case 'cancelada':
         return const AppointmentStatus._('Cancelada', Icons.cancel, Colors.red);
       case 'atendida':
