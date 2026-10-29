@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/appointment_model.dart';
+import '../utils/appointment_status.dart';
 import '../utils/date_formatter.dart';
 import '../screens/client/appointment_detail_screen.dart';
 
@@ -14,27 +15,21 @@ class AppointmentCard extends StatelessWidget {
     this.highlighted = false,
   });
 
-  String _estadoLabel(String estado) {
-    switch (estado) {
-      case 'confirmada':
-        return 'Confirmada';
-      case 'atendida':
-        return 'Atendida';
-      case 'cancelada':
-        return 'Cancelada';
-      default:
-        return estado;
-    }
-  }
-
-  Widget _row(IconData icon, String text, {Color? color}) {
+  Widget _row(IconData icon, String text, {Color? color, bool bold = false}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         children: [
           Icon(icon, size: 16, color: color ?? Colors.black54),
           const SizedBox(width: 8),
-          Text(text, style: const TextStyle(fontSize: 13)),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 13,
+              color: color,
+              fontWeight: bold ? FontWeight.w600 : FontWeight.normal,
+            ),
+          ),
         ],
       ),
     );
@@ -42,6 +37,8 @@ class AppointmentCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final estado = AppointmentStatus.from(appointment.estado);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
@@ -79,11 +76,7 @@ class AppointmentCard extends StatelessWidget {
             Icons.access_time,
             '${appointment.hora} . ${appointment.servicioDuracion} min',
           ),
-          _row(
-            Icons.check_circle,
-            _estadoLabel(appointment.estado),
-            color: Colors.green,
-          ),
+          _row(estado.icon, estado.label, color: estado.color, bold: true),
           const SizedBox(height: 4),
           GestureDetector(
             onTap: () {

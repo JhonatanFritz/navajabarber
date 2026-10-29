@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/appointment_model.dart';
 import '../../services/booking_service.dart';
+import '../../utils/appointment_status.dart';
 import '../../utils/date_formatter.dart';
 import 'cancel_success_screen.dart';
 import '../../services/payment_service.dart';
@@ -24,32 +25,6 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
   void initState() {
     super.initState();
     _appointment = widget.appointment;
-  }
-
-  String _estadoLabel(String estado) {
-    switch (estado) {
-      case 'confirmada':
-        return 'Confirmada';
-      case 'atendida':
-        return 'Atendida';
-      case 'cancelada':
-        return 'Cancelada';
-      default:
-        return estado;
-    }
-  }
-
-  Color _estadoColor(String estado) {
-    switch (estado) {
-      case 'confirmada':
-        return Colors.green;
-      case 'cancelada':
-        return Colors.red;
-      case 'atendida':
-        return Colors.blueGrey;
-      default:
-        return Colors.grey;
-    }
   }
 
   Future<void> _confirmAndCancel() async {
@@ -101,6 +76,7 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final a = _appointment;
+    final estado = AppointmentStatus.from(a.estado);
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -230,15 +206,15 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
               const SizedBox(height: 10),
               Row(
                 children: [
-                  Icon(
-                    Icons.check_circle,
-                    size: 20,
-                    color: _estadoColor(a.estado),
-                  ),
+                  Icon(estado.icon, size: 20, color: estado.color),
                   const SizedBox(width: 10),
                   Text(
-                    _estadoLabel(a.estado),
-                    style: const TextStyle(fontSize: 14),
+                    estado.label,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: estado.color,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ],
               ),
