@@ -4,6 +4,7 @@ import '../../models/appointment_model.dart';
 import '../../services/booking_service.dart';
 import '../../utils/appointment_status.dart';
 import '../../utils/date_formatter.dart';
+import 'booking/select_datetime_screen.dart';
 import 'cancel_success_screen.dart';
 import '../../services/payment_service.dart';
 
@@ -31,21 +32,21 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('¿Cancelar esta reserva?'),
+        title: const Text('¿Cancelar esta cita?'),
         content: Text(
-          'Esta acción no se puede deshacer. El depósito de '
-          'S/ ${PaymentService.depositoReserva.toStringAsFixed(2)} que pagaste '
-          'no se devuelve al cancelar.',
+          'Si cancelas tu cita, perderás el anticipo de '
+          'S/ ${PaymentService.depositoReserva.toStringAsFixed(0)}. '
+          '¿Quieres cancelar de todos modos?',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('No, mantener'),
+            child: const Text('Mantener cita'),
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
             child: const Text(
-              'Sí, cancelar',
+              'Cancelar de todos modos',
               style: TextStyle(color: Colors.red),
             ),
           ),
@@ -73,9 +74,32 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
     }
   }
 
+  Future<void> _reschedule() async {
+    final done = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SelectDateTimeScreen(reschedule: _appointment),
+      ),
+    );
+    // Si se reprogramó, volvemos a la lista: ahí se ve la cita con su nuevo horario.
+    if (done == true && mounted) Navigator.of(context).pop();
+  }
+
+  String? _reprogramarBloqueadoMotivo(Appointment a) {
+    if (a.estado != 'confirmada') return null;
+    if (a.reprogramada) {
+      return 'Ya reprogramaste esta cita una vez. No se puede volver a reprogramar.';
+    }
+    if (!a.puedeReprogramar) {
+      return 'Ya no puedes reprogramar esta cita. Solo se puede reprogramar hasta 3 horas antes.';
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final a = _appointment;
+    final bloqueo = _reprogramarBloqueadoMotivo(a);
     final estado = AppointmentStatus.from(a.estado);
 
     return Scaffold(
@@ -105,7 +129,9 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
                 child: Text(
                   a.estado == 'cancelada'
                       ? 'Reserva cancelada'
-                      : 'Reserva confirmada',
+                      : (a.estado == 'confirmada'
+                          ? 'Reserva confirmada'
+                          : estado.label),
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
@@ -197,6 +223,14 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
                   Text(a.hora, style: const TextStyle(fontSize: 14)),
                 ],
               ),
+              if (a.reprogramada && a.fechaOriginalTexto != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    'Reprogramada (antes: ${a.fechaOriginalTexto} ${a.horaOriginal ?? ''})',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                ),
 
               const SizedBox(height: 24),
               const Text(
@@ -220,7 +254,38 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
               ),
 
               const Spacer(),
-              if (a.estado == 'confirmada')
+              if (a.estado == 'confirmada') ...[
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: (bloqueo != null || _cancelling) ? null : _reschedule,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF7B5CF0),
+                      disabledBackgroundColor: Colors.grey[300],
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(28),
+                      ),
+                    ),
+                    child: const Text(
+                      'Reprogramar',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+                if (bloqueo != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Center(
+                      child: Text(
+                        bloqueo,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 4),
                 Center(
                   child: TextButton(
                     onPressed: _cancelling ? null : _confirmAndCancel,
@@ -231,7 +296,7 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Text(
-                            'Cancelar reserva',
+                            'Cancelar cita',
                             style: TextStyle(
                               color: Colors.red,
                               fontWeight: FontWeight.w600,
@@ -239,6 +304,7 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
                           ),
                   ),
                 ),
+              ],
               const SizedBox(height: 24),
             ],
           ),

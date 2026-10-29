@@ -18,6 +18,11 @@ class Appointment {
   final String? pagoId;
   final bool pagoSimulado;
 
+  // Reprogramación (una sola vez, hasta 3 horas antes)
+  final bool reprogramada;
+  final String? fechaOriginalTexto;
+  final String? horaOriginal;
+
   const Appointment({
     required this.id,
     required this.clienteId,
@@ -35,6 +40,9 @@ class Appointment {
     this.depositoMonto = 0,
     this.pagoId,
     this.pagoSimulado = false,
+    this.reprogramada = false,
+    this.fechaOriginalTexto,
+    this.horaOriginal,
   });
 
   factory Appointment.fromMap(String id, Map<String, dynamic> data) {
@@ -55,6 +63,9 @@ class Appointment {
       depositoMonto: (data['depositoMonto'] ?? 0).toDouble(),
       pagoId: data['pagoId'],
       pagoSimulado: data['pagoSimulado'] ?? false,
+      reprogramada: data['reprogramada'] == true,
+      fechaOriginalTexto: data['fechaOriginalTexto'],
+      horaOriginal: data['horaOriginal'],
     );
   }
 
@@ -75,9 +86,25 @@ class Appointment {
       'depositoMonto': depositoMonto,
       'pagoId': pagoId,
       'pagoSimulado': pagoSimulado,
+      'reprogramada': reprogramada,
       'creadoEn': FieldValue.serverTimestamp(),
     };
   }
+
+  /// Momento de inicio de la cita (fecha + hora "HH:mm"), en hora del dispositivo.
+  DateTime get inicio {
+    final parts = hora.split(':');
+    final h = parts.length > 1 ? int.tryParse(parts[0]) ?? 0 : 0;
+    final m = parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0;
+    return DateTime(fecha.year, fecha.month, fecha.day, h, m);
+  }
+
+  /// Se puede reprogramar si está confirmada, no se reprogramó antes
+  /// y faltan al menos 3 horas.
+  bool get puedeReprogramar =>
+      estado == 'confirmada' &&
+      !reprogramada &&
+      inicio.difference(DateTime.now()) >= const Duration(hours: 3);
 
   // Crea una copia con el estado cambiado, sin tocar el resto de los datos
   Appointment copyWithEstado(String nuevoEstado) {
@@ -98,6 +125,9 @@ class Appointment {
       depositoMonto: depositoMonto,
       pagoId: pagoId,
       pagoSimulado: pagoSimulado,
+      reprogramada: reprogramada,
+      fechaOriginalTexto: fechaOriginalTexto,
+      horaOriginal: horaOriginal,
     );
   }
 }

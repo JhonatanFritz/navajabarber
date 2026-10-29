@@ -19,6 +19,9 @@ class AppointmentStatus {
       case 'atendida':
         return const AppointmentStatus._(
             'Atendida', Icons.done_all, Colors.blue);
+      case 'no_asistio':
+        return const AppointmentStatus._(
+            'No asististe', Icons.event_busy, Colors.deepOrange);
       case 'no_atendida':
         return const AppointmentStatus._(
             'No atendida', Icons.warning_amber_rounded, Colors.orange);

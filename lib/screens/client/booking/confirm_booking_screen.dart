@@ -217,10 +217,13 @@ class _ConfirmBookingScreenState extends State<ConfirmBookingScreen> {
                     border: Border.all(color: Colors.amber[300]!),
                   ),
                   child: Text(
-                    'Para confirmar la reserva pagarás ahora un depósito de '
-                    'S/ ${deposit.toStringAsFixed(2)} con Yape, que se descuenta del '
-                    'precio del servicio. Si no asistes o cancelas la cita, '
-                    'el depósito no se devuelve.',
+                    'Pagarás S/ ${deposit.toStringAsFixed(2)} con Yape para separar '
+                    'tu horario. Este monto se descuenta del precio final.\n\n'
+                    '• Puedes reprogramar tu cita una vez, hasta 3 horas antes.\n'
+                    '• Si cancelas, el anticipo no se devuelve.\n'
+                    '• Tienes 15 minutos de tolerancia: si llegas más tarde, tu '
+                    'horario se libera y el anticipo no se devuelve.\n'
+                    '• Si la barbería no puede atenderte, te devolvemos el anticipo.',
                     style: const TextStyle(fontSize: 12),
                   ),
                 ),

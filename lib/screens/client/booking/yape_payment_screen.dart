@@ -42,7 +42,7 @@ class _YapePaymentScreenState extends State<YapePaymentScreen> {
     final code = _codeController.text.trim();
 
     if (phone.length != 9 || code.length != 6) {
-      setState(() => _errorMessage = 'Ingresa un celular de 9 dígitos y un código de 6 dígitos');
+      setState(() => _errorMessage = 'Ingresa tu celular de Yape (9 dígitos) y el código de 6 dígitos');
       return;
     }
     if (dni.isEmpty ? PaymentService.dniObligatorio : dni.length != 8) {
@@ -133,6 +133,11 @@ class _YapePaymentScreenState extends State<YapePaymentScreen> {
 
               const Text('Depósito de reserva',
                   style: TextStyle(fontSize: 14, color: Colors.grey)),
+              const SizedBox(height: 2),
+              const Text(
+                'Pagas desde tu propia cuenta de Yape. No necesitas el número de la barbería.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
               const SizedBox(height: 4),
               Text('S/ ${amount.toStringAsFixed(2)}',
                   style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
@@ -144,7 +149,12 @@ class _YapePaymentScreenState extends State<YapePaymentScreen> {
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 maxLength: 9,
                 decoration: const InputDecoration(
-                  labelText: 'Celular asociado a Yape',
+                  labelText: 'Tu número de celular de Yape',
+                  hintText: '9 dígitos',
+                  helperText:
+                      'Es TU número, el de la cuenta Yape desde donde pagas. '
+                      'No es el de la barbería.',
+                  helperMaxLines: 2,
                   counterText: '',
                 ),
               ),
@@ -157,7 +167,7 @@ class _YapePaymentScreenState extends State<YapePaymentScreen> {
                 decoration: InputDecoration(
                   labelText: PaymentService.dniObligatorio ? 'DNI' : 'DNI (opcional)',
                   helperText:
-                      'Se envía a Mercado Pago solo para validar el pago. No lo guardamos.',
+                      'Se usa solo para validar el pago. No lo guardamos.',
                   helperMaxLines: 2,
                   counterText: '',
                 ),
@@ -169,10 +179,10 @@ class _YapePaymentScreenState extends State<YapePaymentScreen> {
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 maxLength: 6,
                 decoration: const InputDecoration(
-                  labelText: 'Código de aprobación',
+                  labelText: 'Código de aprobación de tu app Yape',
                   helperText:
-                      'Es el código de 6 dígitos que genera tu app Yape. '
-                      'Si no funciona, genera uno nuevo.',
+                      'Ábrelo en tu app Yape (menú "Código de aprobación"): son '
+                      '6 dígitos. Si no funciona, genera uno nuevo.',
                   helperMaxLines: 2,
                   counterText: '',
                 ),
@@ -188,8 +198,10 @@ class _YapePaymentScreenState extends State<YapePaymentScreen> {
                   border: Border.all(color: Colors.red[200]!),
                 ),
                 child: Text(
-                  'Si no asistes a tu cita o la cancelas, los '
-                  'S/ ${amount.toStringAsFixed(2)} del depósito no serán devueltos.',
+                  'Puedes reprogramar tu cita una vez, hasta 3 horas antes. '
+                  'Si cancelas, o si llegas pasados los 15 minutos de tolerancia, '
+                  'los S/ ${amount.toStringAsFixed(2)} del depósito no se devuelven. '
+                  'Si la barbería no puede atenderte, te los devolvemos.',
                   style: const TextStyle(fontSize: 12),
                 ),
               ),

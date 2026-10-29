@@ -1,6 +1,6 @@
 const {onSchedule} = require("firebase-functions/v2/scheduler");
 const {onCall, onRequest, HttpsError} = require("firebase-functions/v2/https");
-const {onDocumentCreated} = require("firebase-functions/v2/firestore");
+const {onDocumentCreated, onDocumentUpdated} = require("firebase-functions/v2/firestore");
 const {defineSecret} = require("firebase-functions/params");
 const crypto = require("crypto");
 const nodemailer = require("nodemailer");
@@ -429,8 +429,10 @@ function armarCorreoReserva({nombre, cita, pago, esPrueba}) {
 
   const politica =
     `El depósito de ${soles(pago.monto)} forma parte del precio del servicio ` +
-    "y el saldo se paga en el local. Si cancelas la reserva o no asistes, el " +
-    "depósito no se devuelve. Si la barbería no puede atenderte, se te devuelve.";
+    "y el saldo se paga en el local. Puedes reprogramar tu cita una vez, hasta " +
+    "3 horas antes. Si cancelas, el depósito no se devuelve. Tienes 15 minutos " +
+    "de tolerancia: si llegas más tarde, tu horario se libera y el depósito no " +
+    "se devuelve. Si la barbería no puede atenderte, te devolvemos el depósito.";
   const aclaracion =
     "Esta constancia confirma el pago del depósito de reserva. " +
     "No es una boleta ni una factura electrónica.";
@@ -575,6 +577,298 @@ exports.enviarCorreoReserva = onDocumentCreated(
       }
     },
 );
+
+// --- CORREO CUANDO SE REPROGRAMA UNA CITA ---
+// Se dispara cuando `reprogramarCita` marca la cita como reprogramada
+// (reprogramada pasa de no-true a true). La región debe ser la de Firestore.
+function armarCorreoReprogramacion({nombre, cita, esPrueba}) {
+  const duracion = cita.servicioDuracion ? ` (${cita.servicioDuracion} min)` : "";
+  const asunto =
+    `${esPrueba ? "[PRUEBA] " : ""}Tu cita fue reprogramada - La Navaja Maestra`;
+
+  const filasAntes = [
+    ["Fecha", formatearFechaLarga(cita.fechaOriginalTexto)],
+    ["Hora", cita.horaOriginal || ""],
+  ];
+  const filasAhora = [
+    ["Servicio", cita.servicioNombre],
+    ["Barbero", cita.barberoNombre],
+    ["Fecha", formatearFechaLarga(cita.fechaTexto)],
+    ["Hora", `${cita.hora || ""}${duracion}`],
+  ];
+
+  const politica =
+    "Tu anticipo pasa a la nueva fecha, no necesitas pagar de nuevo. " +
+    "Cada cita se puede reprogramar una sola vez, así que ya no podrás " +
+    "cambiar este horario. Si cancelas, el anticipo no se devuelve. " +
+    "Tienes 15 minutos de tolerancia: si llegas más tarde, tu horario se " +
+    "libera y el anticipo no se devuelve.";
+  const avisoPrueba = "CORREO DE PRUEBA: no se cobró dinero real.";
+
+  const texto = [
+    esPrueba ? avisoPrueba : "",
+    "Tu cita fue reprogramada",
+    "",
+    `Hola ${nombre}, tu cita en La Navaja Maestra tiene un nuevo horario.`,
+    "",
+    "HORARIO ANTERIOR",
+    ...filasAntes.map((f) => `${f[0]}: ${f[1]}`),
+    "",
+    "NUEVO HORARIO",
+    ...filasAhora.map((f) => `${f[0]}: ${f[1]}`),
+    "",
+    politica,
+  ].filter((l, i) => !(l === "" && i === 0)).join("\n");
+
+  const fila = (f) =>
+    "<tr>" +
+    `<td style="padding:6px 0;color:#666;">${escaparHtml(f[0])}</td>` +
+    `<td style="padding:6px 0;text-align:right;font-weight:600;">${escaparHtml(f[1])}</td>` +
+    "</tr>";
+
+  const html =
+    "<div style=\"font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#222;\">" +
+    (esPrueba ?
+      "<div style=\"background:#FFF4CC;border:1px solid #F0D060;border-radius:8px;" +
+      `padding:10px;font-size:13px;margin-bottom:16px;\">${escaparHtml(avisoPrueba)}</div>` :
+      "") +
+    "<h2 style=\"color:#5B3EF5;margin-bottom:4px;\">Tu cita fue reprogramada</h2>" +
+    `<p>Hola ${escaparHtml(nombre)}, tu cita en La Navaja Maestra tiene un nuevo horario.</p>` +
+    "<h3 style=\"margin-bottom:4px;\">Horario anterior</h3>" +
+    `<table width="100%" style="border-collapse:collapse;font-size:14px;">${filasAntes.map(fila).join("")}</table>` +
+    "<h3 style=\"margin:20px 0 4px;\">Nuevo horario</h3>" +
+    `<table width="100%" style="border-collapse:collapse;font-size:14px;">${filasAhora.map(fila).join("")}</table>` +
+    `<p style="font-size:13px;color:#555;margin-top:20px;">${escaparHtml(politica)}</p>` +
+    "</div>";
+
+  return {asunto, texto, html};
+}
+
+exports.enviarCorreoReprogramacion = onDocumentUpdated(
+    {
+      document: "citas/{citaId}",
+      region: "southamerica-east1",
+      secrets: [gmailUser, gmailAppPassword],
+    },
+    async (event) => {
+      if (!event.data) return;
+      const antes = event.data.before.data();
+      const despues = event.data.after.data();
+      const ref = event.data.after.ref;
+
+      // Solo cuando la cita acaba de pasar a "reprogramada".
+      if (antes.reprogramada === true || despues.reprogramada !== true) return;
+      if (!despues.clienteId) return;
+
+      // Evita enviar dos veces (un evento puede entregarse más de una vez).
+      const reclamada = await db.runTransaction(async (t) => {
+        const actual = await t.get(ref);
+        if (actual.get("correoReprogramacion")) return false;
+        t.update(ref, {correoReprogramacion: "enviando"});
+        return true;
+      });
+      if (!reclamada) return;
+
+      const marcar = (estado) => ref.update({correoReprogramacion: estado});
+
+      try {
+        const usuario = await admin.auth().getUser(despues.clienteId);
+        if (!usuario.email) {
+          await marcar("sin_correo");
+          return;
+        }
+
+        const esPrueba = PAGOS_DE_PRUEBA || despues.pagoSimulado === true ||
+          String(despues.pagoId || "").startsWith("sim_");
+        const {asunto, texto, html} = armarCorreoReprogramacion({
+          nombre: usuario.displayName || "cliente",
+          cita: despues,
+          esPrueba,
+        });
+
+        const remitente = gmailUser.value().trim();
+        const transporte = nodemailer.createTransport({
+          service: "gmail",
+          auth: {
+            user: remitente,
+            pass: gmailAppPassword.value().replace(/\s/g, ""),
+          },
+        });
+
+        await transporte.sendMail({
+          from: `"La Navaja Maestra" <${remitente}>`,
+          to: usuario.email,
+          subject: asunto,
+          text: texto,
+          html: html,
+        });
+
+        await ref.update({
+          correoReprogramacion: "enviado",
+          correoReprogramacionEn: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        console.log(`Correo de reprogramación enviado (cita ${ref.id}).`);
+      } catch (e) {
+        console.error(`No se pudo enviar el correo de reprogramación de ${ref.id}:`, e.message);
+        await marcar("error");
+      }
+    },
+);
+
+// --- REPROGRAMAR CITA ---
+// Reglas: una sola reprogramación por cita, solo si faltan 3 horas o más para
+// la hora original, con el mismo barbero y servicio. El anticipo pasa a la
+// nueva fecha porque la cita (y su pagoId) es la misma.
+const MINUTOS_MINIMOS_REPROGRAMAR = 180;
+const DIAS_MAXIMOS_RESERVA = 30;
+// Horario de atención en minutos desde medianoche: 09:00-13:00 y 14:00-18:00.
+const PERIODOS_ATENCION = [
+  {desde: 9 * 60, hasta: 13 * 60},
+  {desde: 14 * 60, hasta: 18 * 60},
+];
+
+function aMinutos(hora) {
+  const m = /^(\d{2}):(\d{2})$/.exec(String(hora || ""));
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h > 23 || min > 59) return null;
+  return h * 60 + min;
+}
+
+exports.reprogramarCita = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Debes iniciar sesión.");
+  }
+
+  const {citaId, fechaTexto, hora} = request.data || {};
+  if (
+    typeof citaId !== "string" || !citaId ||
+    typeof fechaTexto !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(fechaTexto) ||
+    typeof hora !== "string"
+  ) {
+    throw new HttpsError("invalid-argument", "Faltan datos o tienen formato incorrecto.");
+  }
+
+  const inicioNuevo = aMinutos(hora);
+  if (inicioNuevo === null) {
+    throw new HttpsError("invalid-argument", "La hora no es válida.");
+  }
+
+  // Medianoche de Lima de la fecha elegida. Si la fecha no existe (por ejemplo
+  // 31 de febrero), al convertirla de vuelta cambia y se rechaza.
+  const fechaNueva = new Date(`${fechaTexto}T00:00:00-05:00`);
+  if (isNaN(fechaNueva.getTime()) || diaEnLima(fechaNueva) !== fechaTexto) {
+    throw new HttpsError("invalid-argument", "La fecha no es válida.");
+  }
+
+  const ahora = new Date();
+  const hoyLima = diaEnLima(ahora);
+  const limiteLima = diaEnLima(
+      new Date(ahora.getTime() + DIAS_MAXIMOS_RESERVA * 24 * 60 * 60 * 1000),
+  );
+  if (fechaTexto < hoyLima) {
+    throw new HttpsError("failed-precondition", "No puedes elegir una fecha pasada.");
+  }
+  if (fechaTexto > limiteLima) {
+    throw new HttpsError("failed-precondition", "Solo puedes reservar hasta 30 días hacia adelante.");
+  }
+  const inicioNuevoFecha = new Date(`${fechaTexto}T${hora}:00-05:00`);
+  if (inicioNuevoFecha <= ahora) {
+    throw new HttpsError("failed-precondition", "Elige un horario que aún no haya pasado.");
+  }
+
+  const citaRef = db.collection("citas").doc(citaId);
+
+  await db.runTransaction(async (t) => {
+    const snap = await t.get(citaRef);
+    if (!snap.exists) {
+      throw new HttpsError("not-found", "No encontramos la cita.");
+    }
+    const cita = snap.data();
+
+    if (cita.clienteId !== request.auth.uid) {
+      throw new HttpsError("permission-denied", "Esta cita no es tuya.");
+    }
+    if (cita.estado !== "confirmada") {
+      throw new HttpsError("failed-precondition", "Solo se pueden reprogramar citas confirmadas.");
+    }
+    if (cita.reprogramada === true) {
+      throw new HttpsError(
+          "failed-precondition",
+          "Ya reprogramaste esta cita una vez. No se puede volver a reprogramar.",
+      );
+    }
+    if (!cita.barberoId || !cita.fechaTexto || !cita.hora) {
+      throw new HttpsError("failed-precondition", "La cita tiene datos incompletos.");
+    }
+
+    const inicioOriginal = new Date(`${cita.fechaTexto}T${cita.hora}:00-05:00`);
+    if (isNaN(inicioOriginal.getTime())) {
+      throw new HttpsError("failed-precondition", "La cita tiene una fecha u hora inválida.");
+    }
+    const minutosRestantes = (inicioOriginal - ahora) / 60000;
+    if (minutosRestantes < MINUTOS_MINIMOS_REPROGRAMAR) {
+      throw new HttpsError(
+          "failed-precondition",
+          "Ya no puedes reprogramar esta cita. Solo se puede reprogramar hasta 3 horas antes.",
+      );
+    }
+
+    if (cita.fechaTexto === fechaTexto && cita.hora === hora) {
+      throw new HttpsError("failed-precondition", "Elige un horario distinto al actual.");
+    }
+
+    // El horario debe estar en la grilla de 30 minutos y caber, con la
+    // duración del servicio, dentro de un periodo de atención.
+    const duracion = Number(cita.servicioDuracion);
+    if (!Number.isFinite(duracion) || duracion <= 0) {
+      throw new HttpsError("failed-precondition", "La cita no tiene una duración válida.");
+    }
+    const cabe = PERIODOS_ATENCION.some(
+        (p) => inicioNuevo >= p.desde && inicioNuevo + duracion <= p.hasta,
+    );
+    if (!cabe || inicioNuevo % 30 !== 0) {
+      throw new HttpsError("failed-precondition", "Ese horario no está disponible.");
+    }
+
+    // El barbero no debe tener otra cita confirmada que se cruce.
+    const delDia = await t.get(
+        db.collection("citas")
+            .where("barberoId", "==", cita.barberoId)
+            .where("fechaTexto", "==", fechaTexto)
+            .where("estado", "==", "confirmada"),
+    );
+    for (const d of delDia.docs) {
+      if (d.id === citaId) continue;
+      const otra = d.data();
+      const inicioOtra = aMinutos(otra.hora);
+      const durOtra = Number(otra.servicioDuracion) || 0;
+      if (inicioOtra === null) continue;
+      if (inicioNuevo < inicioOtra + durOtra && inicioOtra < inicioNuevo + duracion) {
+        throw new HttpsError(
+            "failed-precondition",
+            "Ese horario ya fue tomado por otro cliente. Elige otro.",
+        );
+      }
+    }
+
+    t.update(citaRef, {
+      fecha: admin.firestore.Timestamp.fromDate(fechaNueva),
+      fechaTexto,
+      hora,
+      reprogramada: true,
+      fechaOriginalTexto: cita.fechaTexto,
+      horaOriginal: cita.hora,
+      reprogramadaEn: admin.firestore.FieldValue.serverTimestamp(),
+      // Para que los recordatorios se envíen de nuevo con la nueva hora.
+      recordatorio1hEnviado: false,
+      recordatorioDiaEnviado: false,
+    });
+  });
+
+  return {ok: true, fechaTexto, hora};
+});
 
 // --- HORARIOS OCUPADOS ---
 // Devuelve solo hora y duración de las citas confirmadas de un barbero en un día.

@@ -1,7 +1,9 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
+import '../../../models/appointment_model.dart';
 import '../../../models/barber_model.dart';
 import '../../../models/service_model.dart';
+import '../../../services/booking_service.dart';
 import '../../../utils/date_formatter.dart';
 import 'confirm_booking_screen.dart';
 
@@ -14,10 +16,22 @@ class _BusyRange {
 }
 
 class SelectDateTimeScreen extends StatefulWidget {
-  final Service service;
+  final Service? service; // obligatorio al agendar; no se usa al reprogramar
   final Barber? barber; // null significa "Cualquier profesional"
 
-  const SelectDateTimeScreen({super.key, required this.service, this.barber});
+  /// Si viene una cita, la pantalla funciona en modo "Reprogramar":
+  /// toma servicio y barbero de la cita y llama a la función `reprogramarCita`.
+  final Appointment? reschedule;
+
+  const SelectDateTimeScreen({
+    super.key,
+    this.service,
+    this.barber,
+    this.reschedule,
+  }) : assert(
+          service != null || reschedule != null,
+          'Se necesita un servicio o una cita a reprogramar',
+        );
 
   @override
   State<SelectDateTimeScreen> createState() => _SelectDateTimeScreenState();
@@ -60,11 +74,24 @@ class _SelectDateTimeScreenState extends State<SelectDateTimeScreen> {
     _weekStart = _todayWeekStart;
     _selectedDate = _today;
 
-    if (widget.barber != null) {
+    if (_barberId != null) {
       _loadingBusy = true;
       _fetchBusy(_today);
     }
   }
+
+  bool get _isReschedule => widget.reschedule != null;
+  String get _serviceName =>
+      widget.reschedule?.servicioNombre ?? widget.service!.name;
+  int get _duration =>
+      widget.reschedule?.servicioDuracion ?? widget.service!.durationMinutes;
+  String? get _barberId =>
+      _isReschedule ? widget.reschedule!.barberoId : widget.barber?.id;
+  String get _barberName => _isReschedule
+      ? widget.reschedule!.barberoNombre
+      : (widget.barber?.name ?? 'Cualquier profesional');
+
+  bool _saving = false;
 
   int _toMinutes(String hhmm) {
     final parts = hhmm.split(':');
@@ -75,7 +102,7 @@ class _SelectDateTimeScreenState extends State<SelectDateTimeScreen> {
     // "Cualquier profesional": todavía no se sabe cuántos barberos trabajan
     // cada día, así que no se bloquea ningún horario.
     // TODO: usar los barberos activos cuando existan en Firestore.
-    if (widget.barber == null) {
+    if (_barberId == null) {
       setState(() {
         _busy = [];
         _loadingBusy = false;
@@ -98,16 +125,22 @@ class _SelectDateTimeScreenState extends State<SelectDateTimeScreen> {
       final response = await FirebaseFunctions.instance
           .httpsCallable('obtenerHorariosOcupados')
           .call({
-        'barberoId': widget.barber!.id,
+        'barberoId': _barberId,
         'fechaTexto': DateFormatter.isoDate(day),
       });
 
       final data = Map<String, dynamic>.from(response.data as Map);
-      final ranges = (data['ocupados'] as List).map((item) {
+      final r = widget.reschedule;
+      final isOriginalDay =
+          r != null && r.fechaTexto == DateFormatter.isoDate(day);
+      final ranges = <_BusyRange>[];
+      for (final item in (data['ocupados'] as List)) {
         final m = Map<String, dynamic>.from(item as Map);
+        // Al reprogramar, el horario actual de la propia cita no cuenta como ocupado.
+        if (isOriginalDay && m['hora'] == r!.hora) continue;
         final start = _toMinutes(m['hora'] as String);
-        return _BusyRange(start, start + (m['duracion'] as num).toInt());
-      }).toList();
+        ranges.add(_BusyRange(start, start + (m['duracion'] as num).toInt()));
+      }
 
       if (!mounted || requestId != _requestId) return;
       setState(() {
@@ -120,6 +153,38 @@ class _SelectDateTimeScreenState extends State<SelectDateTimeScreen> {
         _loadingBusy = false;
         _busyError = 'No se pudo cargar la disponibilidad. Intenta de nuevo.';
       });
+    }
+  }
+
+  Future<void> _confirmReschedule() async {
+    if (_saving) return;
+    final r = widget.reschedule!;
+    setState(() => _saving = true);
+    try {
+      await BookingService().rescheduleAppointment(
+        citaId: r.id,
+        fechaTexto: DateFormatter.isoDate(_selectedDate!),
+        hora: _selectedTime!,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tu cita fue reprogramada')),
+      );
+      Navigator.of(context).pop(true); // true = se reprogramó
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? 'No se pudo reprogramar la cita.')),
+      );
+      // Si el horario se ocupó mientras elegías, refresca la disponibilidad.
+      if (_selectedDate != null) _loadBusy(_selectedDate!);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo reprogramar la cita.')),
+      );
     }
   }
 
@@ -189,7 +254,7 @@ class _SelectDateTimeScreenState extends State<SelectDateTimeScreen> {
     );
 
     while (!current
-        .add(Duration(minutes: widget.service.durationMinutes))
+        .add(Duration(minutes: _duration))
         .isAfter(periodEndTime)) {
       slots.add(
         '${current.hour.toString().padLeft(2, '0')}:${current.minute.toString().padLeft(2, '0')}',
@@ -204,7 +269,7 @@ class _SelectDateTimeScreenState extends State<SelectDateTimeScreen> {
   List<String> _filterAvailable(List<String> allSlots, DateTime date) {
     final now = DateTime.now();
     final isToday = _isSameDate(date, _today);
-    final duration = widget.service.durationMinutes;
+    final duration = _duration;
 
     return allSlots.where((slot) {
       final start = _toMinutes(slot);
@@ -349,9 +414,15 @@ class _SelectDateTimeScreenState extends State<SelectDateTimeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final sameAsOriginal = _isReschedule &&
+        _selectedDate != null &&
+        widget.reschedule!.fechaTexto == DateFormatter.isoDate(_selectedDate!) &&
+        widget.reschedule!.hora == _selectedTime;
     final canContinue = _selectedDate != null &&
         _selectedTime != null &&
         !_loadingBusy &&
+        !_saving &&
+        !sameAsOriginal &&
         _busyError == null;
 
     return Scaffold(
@@ -370,8 +441,8 @@ class _SelectDateTimeScreenState extends State<SelectDateTimeScreen> {
                     icon: const Icon(Icons.arrow_back, size: 24),
                   ),
                   const SizedBox(width: 4),
-                  const Text(
-                    'Agendar',
+                  Text(
+                    _isReschedule ? 'Reprogramar' : 'Agendar',
                     style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                   ),
                 ],
@@ -387,13 +458,13 @@ class _SelectDateTimeScreenState extends State<SelectDateTimeScreen> {
               const SizedBox(height: 4),
               Center(
                 child: Text(
-                  '${widget.service.name} - ${widget.service.durationMinutes} min',
+                  '$_serviceName - $_duration min',
                   style: TextStyle(fontSize: 13, color: Colors.grey[700]),
                 ),
               ),
               Center(
                 child: Text(
-                  widget.barber?.name ?? 'Cualquier profesional',
+                  _barberName,
                   style: TextStyle(fontSize: 13, color: Colors.grey[700]),
                 ),
               ),
@@ -531,19 +602,21 @@ class _SelectDateTimeScreenState extends State<SelectDateTimeScreen> {
             width: double.infinity,
             child: ElevatedButton(
               onPressed: canContinue
-                  ? () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => ConfirmBookingScreen(
-                            service: widget.service,
-                            barber: widget.barber,
-                            date: _selectedDate!,
-                            time: _selectedTime!,
-                          ),
-                        ),
-                      );
-                    }
+                  ? (_isReschedule
+                      ? _confirmReschedule
+                      : () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ConfirmBookingScreen(
+                                service: widget.service!,
+                                barber: widget.barber,
+                                date: _selectedDate!,
+                                time: _selectedTime!,
+                              ),
+                            ),
+                          );
+                        })
                   : null,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF7B5CF0),
@@ -554,10 +627,17 @@ class _SelectDateTimeScreenState extends State<SelectDateTimeScreen> {
                   borderRadius: BorderRadius.circular(28),
                 ),
               ),
-              child: const Text(
-                'Continuar',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
+              child: _saving
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2),
+                    )
+                  : Text(
+                      _isReschedule ? 'Confirmar nuevo horario' : 'Continuar',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
             ),
           ),
         ),
